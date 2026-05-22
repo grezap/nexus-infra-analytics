@@ -91,7 +91,51 @@ Every verb group ships a System B JSON demo in [`nexus-cli/docs/demos/`](https:/
 | demo (bring-up) | `demo-0.G.5-clickhouse-bring-up` | from-zero build + cold-rebuild gate | `ALL 0.G.5 SMOKE CHECKS PASSED` |
 
 ### §1.B StarRocks (Phase 0.G.6)
-*(fills in when 0.G.6 lands — analytics-starrocks-fe-node + analytics-starrocks-be-node templates + `envs/analytics-starrocks/`.)*
+
+Builds **after** 0.G.5 (ClickHouse) is sealed + its VMs stopped (`feedback_minimal_running_vms.md`).
+
+#### §1.B.1 Build the Packer templates
+```powershell
+cd packer/analytics-starrocks-fe-node ; packer init . ; packer build .
+cd ../analytics-starrocks-be-node     ; packer init . ; packer build .
+# StarRocks tarball + version override (if the default patch is unavailable):
+#   packer build -var starrocks_version=3.3.x -var starrocks_download_url=<mirror> .
+```
+Output templates: `H:/VMS/NexusPlatform/_templates/analytics-starrocks-fe-node/` + `.../analytics-starrocks-be-node/`. Spot-check: `start_fe.sh`/`start_be.sh` present, JDK installed, `nexus-starrocks-fe.service`/`-be.service` DISABLED.
+
+#### §1.B.2 Cross-env operator order
+```
+nexus-infra-vmware  envs/foundation  apply   # +6 SR dhcp-host reservations (:93-:98) + starrocks-fe.nexus.lab round-robin + NFS export extended to the 3 BE
+nexus-infra-vmware  envs/security    apply   # starrocks-server PKI role + 6 AppRole sidecars + root/app KV seeds
+nexus-infra-analytics  envs/analytics-starrocks  apply
+```
+
+#### §1.B.3 Apply
+```powershell
+pwsh -File scripts/analytics-starrocks.ps1 apply
+```
+Apply-flow: 6 clones (3 FE + 3 BE) → firstboot → nftables-backplane → vault-agents → tls (per-host PKI, PKCS#8) → **fe-bootstrap** (render fe.conf; start the leader; join 2 followers via `ALTER SYSTEM ADD FOLLOWER` + first-start `--helper`; BDB-JE quorum) → **be-join** (render be.conf; start the 3 BE; `ALTER SYSTEM ADD BACKEND` on the leader) → schema-bootstrap (`DISTRIBUTED BY HASH BUCKETS` + `replication_num=3` + RBAC + tablet-distribution proof) → backup-repo (NFS mount + `CREATE REPOSITORY` + `BACKUP SNAPSHOT`).
+
+#### §1.B.4 Verify the exit gate
+```powershell
+pwsh -File scripts/analytics-starrocks.ps1 smoke   # smoke-0.G.6.ps1 -> ALL 0.G.6 SMOKE CHECKS PASSED
+```
+Manual spot-checks (`mysql -h 127.0.0.1 -P 9030 -u root -p<root>` on `sr-fe-leader`): `SHOW FRONTENDS` = 1 LEADER + 2 FOLLOWER all Alive; `SHOW BACKENDS` = 3 Alive; `SHOW CREATE TABLE nexus.events` shows `replication_num=3`; `ADMIN SHOW REPLICA DISTRIBUTION FROM nexus.events` spread across all 3 BE.
+
+#### §1.B.5 Iterating (selective ops)
+```powershell
+# Only the FE quorum (no BE yet):
+pwsh -File scripts/analytics-starrocks.ps1 apply -Vars enable_sr_be_1=false,enable_sr_be_2=false,enable_sr_be_3=false,enable_be_join=false
+```
+
+#### §1.B.6 Demos + playbooks (all 11 verb groups)
+System B demos `demo-0.G.6-starrocks-*.json` in [`nexus-cli/docs/demos/`](https://github.com/grezap/nexus-cli/tree/main/docs/demos): cluster-status · health · topology · failover-test · scale-out · scale-up · backup · cert-rotate · chaos · acl · bring-up. Persona tour: System A [`DEMO-15`](https://github.com/grezap/nexus-platform-plan/blob/main/docs/demos/DEMO-15.md) (StarRocks half).
+
+#### §1.B.7 StarRocks-specific ratification notes (best-effort, confirm live)
+- **JAVA_HOME** in the FE/BE units is the Debian openjdk-17 path; confirm at ratification.
+- **FE follower join**: the `--helper` one-shot → systemd handover is ratification-sensitive (handbook §3.x).
+- **Backup repository on NFS**: StarRocks may require a Broker for a POSIX/`file://` repository; if so, the documented fix is to migrate to MinIO/S3 at Phase 0.L (ADR-0032 names MinIO as the successor). The verb surface is unchanged.
+- **Internal FE↔BE TLS** (thrift/brpc) is newer in StarRocks; the lab posture trusts the VMnet10 backplane (firewall) for internal traffic; tightening is a documented follow-up.
 
 ---
 
@@ -100,7 +144,7 @@ Every verb group ships a System B JSON demo in [`nexus-cli/docs/demos/`](https:/
 | Sub-phase | Cluster | Closed | Smoke checks |
 |---|---|---|---|
 | 0.G.5 | ClickHouse (3 shards × 2 replicas + 3 Keeper) | scaffolded 2026-05-22; live-ratify pending | `smoke-0.G.5.ps1` |
-| 0.G.6 | StarRocks (3 FE + 3 BE) | planned | `smoke-0.G.6.ps1` |
+| 0.G.6 | StarRocks (3 FE + 3 BE) | scaffolded 2026-05-22; live-ratify pending (builds after 0.G.5 sealed) | `smoke-0.G.6.ps1` |
 
 ---
 

@@ -4,7 +4,7 @@
 [![Terraform](https://img.shields.io/badge/Terraform-1.9+-purple)](https://www.terraform.io/)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Blueprint](https://img.shields.io/badge/blueprint-nexus--platform--plan-orange)](https://github.com/grezap/nexus-platform-plan)
-[![Phase](https://img.shields.io/badge/phase-0.G.5%20ClickHouse%20SCAFFOLDED%20%E2%80%A2%200.G.6%20StarRocks%20PLANNED-yellow)](./CHANGELOG.md)
+[![Phase](https://img.shields.io/badge/phase-0.G.5%20ClickHouse%20%2B%200.G.6%20StarRocks%20SCAFFOLDED-yellow)](./CHANGELOG.md)
 [![Release](https://img.shields.io/badge/release-unreleased-lightgrey)](./CHANGELOG.md)
 
 Analytics data tier of the **NexusPlatform 66-VM lab** — ClickHouse (Keeper quorum + sharded/replicated MergeTree) · StarRocks (FE quorum + BE tablet sharding). 15 VMs on tier `04-analytics`.
@@ -33,7 +33,7 @@ Both stores are genuine multi-node clusters that are **sharded AND replicated** 
 | Sub-phase | Cluster | VMs | nexus-cli release | Status |
 |---|---|---|---|---|
 | 0.G.5 | ClickHouse (3 shards × 2 replicas + 3 Keeper) | 9 | ClickHouseAdapter (later unified CLI phase) | scaffolded 2026-05-22 — per-engine templates `analytics-clickhouse-{keeper,server}-node` + `envs/analytics-clickhouse/` + `smoke-0.G.5.ps1` + demos + handbook; live-ratify + cold-rebuild pending |
-| 0.G.6 | StarRocks (3 FE + 3 BE) | 6 | StarRocksAdapter (later unified CLI phase) | planned — builds after 0.G.5 is sealed + its VMs stopped (`feedback_minimal_running_vms.md`) |
+| 0.G.6 | StarRocks (3 FE + 3 BE) | 6 | StarRocksAdapter (later unified CLI phase) | scaffolded 2026-05-22 — per-engine templates `analytics-starrocks-{fe,be}-node` + `envs/analytics-starrocks/` (7 overlays incl. fe-bootstrap/be-join) + `smoke-0.G.6.ps1` + 11 demos + handbook §1.B; builds after 0.G.5 is sealed + its VMs stopped; live-ratify + cold-rebuild pending |
 
 The `nexus-cli` `ClickHouseAdapter` + `StarRocksAdapter` ship in the later unified CLI adapter phase (covering all 7 data clusters at once); they shell out over SSH to on-node `clickhouse-client` / `mysql` (StarRocks speaks the MySQL protocol) — no managed DB driver linked into the AOT binary, ≤30 MB ([ADR-0024](https://github.com/grezap/nexus-platform-plan/blob/main/docs/adr/ADR-0024-aot-gate-amendment-and-cluster-adapter-framework.md)). The System B demos for all 11 verb groups are authored now (in [`nexus-cli/docs/demos/`](https://github.com/grezap/nexus-cli/tree/main/docs/demos)) and executed via the smoke gate / SSH until the adapters land.
 

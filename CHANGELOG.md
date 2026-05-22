@@ -6,6 +6,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Phase 0.G.6 — StarRocks (3 FE BDB-JE quorum + 3 BE) scaffolded (2026-05-22)
+
+Adds the second analytics cluster on the same per-engine/per-cluster canon.
+
+**2 per-engine Packer templates**: `packer/analytics-starrocks-fe-node/` + `packer/analytics-starrocks-be-node/` (Debian 13 + JDK 17 + StarRocks 3.3.x from the release tarball; `nexus-starrocks-fe.service` / `-be.service` DISABLED; FE node also bakes `default-mysql-client`). RAM right-sized (FE 8→4 GB, BE 16→6 GB; logged in `vms.yaml`).
+
+**Per-cluster Terraform env** `terraform/envs/analytics-starrocks/` (6 `module.vm`: 3 FE + 3 BE; overlays: nftables-backplane, vault-agents, tls, **fe-bootstrap** [leader-first + 2 followers via `ALTER SYSTEM ADD FOLLOWER` + `--helper`; BDB-JE quorum], **be-join** [`ALTER SYSTEM ADD BACKEND`], schema-bootstrap [`DISTRIBUTED BY HASH BUCKETS` + `replication_num=3` + RBAC + tablet-distribution proof], backup-repo [NFS + `CREATE REPOSITORY` + `BACKUP SNAPSHOT`]). `terraform validate` clean.
+
+**Operator surface**: `scripts/analytics-starrocks.ps1` + `scripts/smoke-0.G.6.ps1`.
+
+**Cross-tier (nexus-infra-vmware)**: foundation reservations overlay v2 (+6 StarRocks dhcp-host `:93`–`:98` → `.31`–`.36`) + round-robin `starrocks-fe.nexus.lab` (3 FE) + NFS export extended to the FE/BE; security overlay (`starrocks-server` PKI role + 6 AppRoles/policies/sidecars + root/app KV sticky-seeds).
+
+**Demos**: 11 System B JSONs (`demo-0.G.6-starrocks-*.json`) covering all verb groups; System A `DEMO-15` StarRocks half.
+
+**StarRocks-specific ratification notes** (handbook §1.B.7): JAVA_HOME path, FE `--helper`→systemd handover, NFS-repository-needs-broker (MinIO/S3 migration at 0.L), internal FE↔BE TLS posture.
+
+CI matrix extended (4 packer templates + 2 terraform envs). Live-ratify + cold-rebuild proof + `v0.1.0` tag pending (operator-owned).
+
 ### Added — Phase 0.G.5 — ClickHouse (3 shards × 2 replicas + 3-node Keeper quorum) scaffolded (2026-05-22)
 
 Bootstraps the `nexus-infra-analytics` repo (tier `04-analytics`) and the first analytics cluster, on the per-cluster Terraform state + per-engine Packer template architectural canon (`feedback_per_cluster_state_per_engine_template.md`) from day one.
