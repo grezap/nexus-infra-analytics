@@ -44,7 +44,7 @@ resource "null_resource" "clickhouse_server_config" {
     keeper_id    = length(null_resource.clickhouse_keeper_config) > 0 ? null_resource.clickhouse_keeper_config[0].id : "disabled"
     tls_ids      = join(",", [for h in keys(local.clickhouse_data_nodes) : lookup(local.clickhouse_tls_active, h, null) != null ? null_resource.clickhouse_tls[h].id : "skip"])
     cluster_name = var.clickhouse_cluster_name
-    server_cfg_v = "1"
+    server_cfg_v = "5" # v5: write /etc/hosts backplane block (peer FQDN -> .10.x) so ReplicatedMergeTree interserver part-fetch routes over VMnet10; CH 26.5 advertises the FQDN in the replica znode regardless of interserver_http_host, and the FQDN otherwise resolves to the firewall-closed VMnet11 IP (transient #4, real fix). v4: start mechanism is now enable+restart (was enable --now, which no-ops on a running unit so config.d changes never loaded) -- transient #5b. v3: interserver_http_host pinned to backplane (belt-and-suspenders). v2: default user gains show_named_collections_secrets so it can GRANT ALL WITH GRANT OPTION to admin (transient #3) + readiness probe uses --accept-invalid-certificate (transient #2).
     ssh_user     = var.analytics_node_user
   }
 
@@ -97,11 +97,24 @@ resource "null_resource" "clickhouse_server_config" {
             </networks>
             <access_management>1</access_management>
             <named_collection_control>1</named_collection_control>
+            <show_named_collections_secrets>1</show_named_collections_secrets>
         </default>
     </users>
 </clickhouse>
 "@
       $usersB64 = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes(($usersXml -replace "`r`n","`n")))
+
+      # /etc/hosts backplane block: map every data-node FQDN -> its VMnet10
+      # backplane IP so ReplicatedMergeTree interserver part-fetch (9010, opened
+      # only on the backplane) routes over .10.x. CH 26.5 advertises the node
+      # FQDN in the replica /host znode regardless of interserver_http_host, and
+      # that FQDN otherwise resolves (via DNS) to the firewall-closed VMnet11 IP
+      # -> GET_PART timeouts -> replicas never converge (transient #4). Written
+      # to ALL data nodes before the server (re)starts so the very first replica
+      # registration on a cold rebuild already routes correctly.
+      $hostsLines = ($dataNodes | ForEach-Object { "$($_.b10) $($_.host).clickhouse.nexus.lab $($_.host).nexus.lab $($_.host)" }) -join "`n"
+      $hostsBlock = "# >>> nexus-analytics backplane (interserver replication over VMnet10) >>>`n$hostsLines`n# <<< nexus-analytics backplane <<<"
+      $hostsB64   = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes(($hostsBlock -replace "`r`n","`n")))
 
       foreach ($n in $dataNodes) {
         $h = $n.host; $shard = $n.shard; $replica = $n.replica; $b10 = $n.b10; $ip = $n.ip
@@ -120,7 +133,18 @@ resource "null_resource" "clickhouse_server_config" {
     <mysql_port remove="1"/>
     <interserver_http_port remove="1"/>
     <interserver_https_port>9010</interserver_https_port>
-    <interserver_http_host>$b10</interserver_http_host>
+    <!-- interserver_http_host: intent is to advertise the VMnet10 backplane IP
+         for ReplicatedMergeTree part-fetch. NOTE (transient #4): CH 26.5 ignores
+         this for the replica /host znode at registration time; it advertises the
+         node FQDN (ch-shardN-repM.nexus.lab) regardless. That FQDN resolves (via
+         DNS) to the VMnet11 service IP, where interserver 9010 is firewall closed,
+         so part-fetch times out (GET_PART "connect timed out :9010"). The load
+         bearing fix is the /etc/hosts backplane block written below, mapping every
+         peer FQDN to its 192.168.10.x backplane IP so the advertised FQDN routes
+         over the trusted backplane. This setting is kept as belt-and-suspenders
+         for CH versions that DO honor it. (XML comments may not contain a double
+         hyphen.) -->
+    <interserver_http_host replace="replace">$b10</interserver_http_host>
 
     <macros>
         <shard>$shard</shard>
@@ -174,19 +198,26 @@ sudo chmod 0640 /etc/clickhouse-server/config.d/nexus-cluster.xml
 echo '$usersB64' | base64 -d | sudo tee /etc/clickhouse-server/users.d/nexus-bootstrap.xml > /dev/null
 sudo chown root:clickhouse /etc/clickhouse-server/users.d/nexus-bootstrap.xml
 sudo chmod 0640 /etc/clickhouse-server/users.d/nexus-bootstrap.xml
+# Backplane FQDN -> .10.x map for interserver part-fetch (transient #4). Idempotent: drop any prior block first.
+sudo sed -i '/# >>> nexus-analytics backplane/,/# <<< nexus-analytics backplane <<</d' /etc/hosts
+echo '$hostsB64' | base64 -d | sudo tee -a /etc/hosts > /dev/null
 echo RENDER_OK
 "@
         $out = ($render -replace "`r`n","`n") | ssh @sshOpts "$sshUser@$ip" "tr -d '\r' | bash -s" 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0 -or $out -notmatch 'RENDER_OK') { Write-Host $out.Trim(); throw "[ch-server-config $h] render failed (rc=$LASTEXITCODE)" }
       }
 
-      # Parallel start.
-      Write-Host "[ch-server-config] enabling + starting nexus-clickhouse-server on all 6 data nodes (parallel)"
+      # Parallel (re)start. `enable` (boot persistence) + `restart` (NOT
+      # `enable --now`): on a cold node `restart` starts the service, and on a
+      # re-apply (config bump) `restart` actually reloads the new config.d --
+      # `enable --now` no-ops on an already-running unit, so config overlay
+      # changes would silently never take effect (transient #5).
+      Write-Host "[ch-server-config] enabling + (re)starting nexus-clickhouse-server on all 6 data nodes (parallel)"
       foreach ($n in $dataNodes) {
         Start-Job -ScriptBlock {
           param($ip,$sshUser)
           $o = @('-o','ConnectTimeout=10','-o','BatchMode=yes','-o','StrictHostKeyChecking=no')
-          ssh @o "$sshUser@$ip" "sudo systemctl daemon-reload; sudo systemctl enable --now nexus-clickhouse-server.service" 2>&1
+          ssh @o "$sshUser@$ip" "sudo systemctl daemon-reload; sudo systemctl enable nexus-clickhouse-server.service; sudo systemctl restart nexus-clickhouse-server.service" 2>&1
         } -ArgumentList $n.ip,$sshUser | Out-Null
       }
       Get-Job | Wait-Job -Timeout 180 | Out-Null
@@ -200,7 +231,7 @@ echo RENDER_OK
         $deadline = (Get-Date).AddMinutes($bootTimeout)
         $ready = $false
         while ((Get-Date) -lt $deadline) {
-          $q = (ssh @sshOpts "$sshUser@$ip" "clickhouse-client --secure --host localhost --port 9440 --query 'SELECT 1' 2>/dev/null" 2>&1 | Out-String).Trim()
+          $q = (ssh @sshOpts "$sshUser@$ip" "clickhouse-client --secure --accept-invalid-certificate --host localhost --port 9440 --query 'SELECT 1' 2>/dev/null" 2>&1 | Out-String).Trim()
           if ($q -eq '1') { $ready = $true; break }
           Start-Sleep -Seconds 8
         }

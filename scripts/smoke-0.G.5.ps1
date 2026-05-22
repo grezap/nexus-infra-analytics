@@ -51,7 +51,7 @@ $coord = $dataIps[0]   # ch-shard1-rep1 -- arbitrary data-node query coordinator
 $sshOpts = @('-o', 'ConnectTimeout=5', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=no')
 
 # On-node clickhouse-client over TLS as default@localhost.
-$chq = "clickhouse-client --secure --host localhost --port 9440 --query"
+$chq = "clickhouse-client --secure --accept-invalid-certificate --host localhost --port 9440 --query"
 
 $failures = @()
 $warnings = @()
@@ -264,7 +264,7 @@ Test-Check -Description "app_rw + app_ro roles exist" -Probe {
 Test-Check -Description "default user restricted to localhost (not 0.0.0.0/::)" -Probe {
     # default user should NOT be reachable from the lab network; on-node it is
     # localhost-only. Probe: a remote-host clickhouse-client as default fails.
-    $remote = Invoke-RemoteCommand -Ip $dataIps[1] -Command "clickhouse-client --secure --host $coord --port 9440 --user default --query 'SELECT 1' 2>&1 || echo DENIED"
+    $remote = Invoke-RemoteCommand -Ip $dataIps[1] -Command "clickhouse-client --secure --accept-invalid-certificate --host $coord --port 9440 --user default --query 'SELECT 1' 2>&1 || echo DENIED"
     $remote -match 'DENIED|AUTHENTICATION|not allowed|denied'
 } | Out-Null
 

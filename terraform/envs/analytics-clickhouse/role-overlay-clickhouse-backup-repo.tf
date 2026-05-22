@@ -11,12 +11,12 @@
  * 0.L (the ClickHouse Disk flips type local->s3; the backup verb + demos are
  * unchanged). See ADR-0032.
  *
- * NFS coexistence note: the portainer export holds fsid=0 (the NFSv4
- * pseudo-root). The analytics export (provisioned by nexus-infra-vmware
- * foundation's role-overlay-gateway-nfs-analytics.tf) gets its own non-zero
- * fsid and is mounted via its real path. If the single-pseudo-root semantics
- * block the sibling export at live ratification, the documented fix is to set
- * the gateway pseudo-root to /srv/nfs with crossmnt (handbook §3.x).
+ * NFS coexistence note (settled at live ratification): the portainer export
+ * holds fsid=0 (NFSv4 pseudo-root) for its clients; an explicit fsid=0 disables
+ * knfsd's auto pseudo-fs server-wide, so the analytics export gets its OWN
+ * fsid=0 for the disjoint analytics client set (foundation's
+ * role-overlay-gateway-nfs-analytics.tf) and is mounted via 192.168.70.1:/ (no
+ * path). Mounting the real path fails ENOENT. See handbook §3.x transient.
  *
  * Selective ops: var.enable_backup_repo.
  */
@@ -29,7 +29,7 @@ resource "null_resource" "clickhouse_backup_repo" {
     nfs_server  = var.backup_nfs_server
     nfs_export  = var.backup_nfs_export
     mount_point = var.backup_mount_point
-    backup_v    = "1"
+    backup_v    = "2" # v2: mount the NFSv4 pseudo-root (:/) since the export is now fsid=0 for the analytics client set; the real-path mount failed ENOENT (portainer's fsid=0 disables knfsd auto pseudo-fs).
     ssh_user    = var.analytics_node_user
   }
 
@@ -74,12 +74,15 @@ resource "null_resource" "clickhouse_backup_repo" {
 set -euo pipefail
 sudo mkdir -p '$mountPoint'
 # Idempotent fstab entry for the shared NFS backup repository.
-FSTAB_LINE='$nfsServer:$nfsExport  $mountPoint  nfs4  vers=4.2,rw,hard,_netdev,timeo=600,retrans=2  0  0'
+# Mount via the NFSv4 pseudo-root ':/' (the export is fsid=0 for the analytics
+# client set); mounting the real path fails ENOENT because portainer's fsid=0
+# disables knfsd's auto pseudo-fs server-wide (handbook §3.x transient).
+FSTAB_LINE='$${nfsServer}:/  $mountPoint  nfs4  vers=4.2,rw,hard,_netdev,timeo=600,retrans=2  0  0'
 if ! grep -qF '$mountPoint' /etc/fstab; then
   echo "`$FSTAB_LINE" | sudo tee -a /etc/fstab > /dev/null
 fi
 if ! mountpoint -q '$mountPoint'; then
-  sudo mount '$mountPoint' || sudo mount -t nfs4 -o vers=4.2,rw,hard,_netdev '$nfsServer:$nfsExport' '$mountPoint'
+  sudo mount '$mountPoint' || sudo mount -t nfs4 -o vers=4.2,rw,hard,_netdev '$${nfsServer}:/' '$mountPoint'
 fi
 mountpoint -q '$mountPoint' || { echo "ERROR: $mountPoint not mounted" >&2; exit 1; }
 sudo mkdir -p '$mountPoint/clickhouse'
@@ -99,7 +102,7 @@ echo BACKUP_SETUP_OK
       foreach ($ip in $dataNodes) {
         $deadline = (Get-Date).AddMinutes(3); $ready = $false
         while ((Get-Date) -lt $deadline) {
-          $q = (ssh @sshOpts "$sshUser@$ip" "clickhouse-client --secure --host localhost --port 9440 --query 'SELECT 1' 2>/dev/null" 2>&1 | Out-String).Trim()
+          $q = (ssh @sshOpts "$sshUser@$ip" "clickhouse-client --secure --accept-invalid-certificate --host localhost --port 9440 --query 'SELECT 1' 2>/dev/null" 2>&1 | Out-String).Trim()
           if ($q -eq '1') { $ready = $true; break }
           Start-Sleep -Seconds 5
         }
@@ -112,16 +115,16 @@ echo BACKUP_SETUP_OK
       $restore = '192.168.70.46'
       $bkName  = "ch_smoke_$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()).zip"
       Write-Host "[ch-backup-repo] BACKUP nexus.events_local on $take -> $bkName"
-      $bk = (ssh @sshOpts "$sshUser@$take" "clickhouse-client --secure --host localhost --port 9440 --query `"BACKUP TABLE nexus.events_local TO Disk('analytics_backups', '$bkName')`" 2>&1" 2>&1 | Out-String).Trim()
+      $bk = (ssh @sshOpts "$sshUser@$take" "clickhouse-client --secure --accept-invalid-certificate --host localhost --port 9440 --query `"BACKUP TABLE nexus.events_local TO Disk('analytics_backups', '$bkName')`" 2>&1" 2>&1 | Out-String).Trim()
       if ($bk -notmatch 'BACKUP_CREATED') { Write-Host $bk; throw "[ch-backup-repo] BACKUP did not report BACKUP_CREATED" }
 
       Write-Host "[ch-backup-repo] RESTORE from $restore (cross-node) into a temp table"
-      $rs = (ssh @sshOpts "$sshUser@$restore" "clickhouse-client --secure --host localhost --port 9440 --query `"RESTORE TABLE nexus.events_local AS nexus.events_restore_check FROM Disk('analytics_backups', '$bkName')`" 2>&1" 2>&1 | Out-String).Trim()
+      $rs = (ssh @sshOpts "$sshUser@$restore" "clickhouse-client --secure --accept-invalid-certificate --host localhost --port 9440 --query `"RESTORE TABLE nexus.events_local AS nexus.events_restore_check FROM Disk('analytics_backups', '$bkName')`" 2>&1" 2>&1 | Out-String).Trim()
       if ($rs -notmatch 'RESTORED') { Write-Host $rs; throw "[ch-backup-repo] cross-node RESTORE did not report RESTORED" }
-      $rc = (ssh @sshOpts "$sshUser@$restore" "clickhouse-client --secure --host localhost --port 9440 --query 'SELECT count() FROM nexus.events_restore_check' 2>/dev/null" 2>&1 | Out-String).Trim()
+      $rc = (ssh @sshOpts "$sshUser@$restore" "clickhouse-client --secure --accept-invalid-certificate --host localhost --port 9440 --query 'SELECT count() FROM nexus.events_restore_check' 2>/dev/null" 2>&1 | Out-String).Trim()
       Write-Host "[ch-backup-repo] restored row count on $restore = $rc"
       # cleanup the restore-check table (best-effort)
-      ssh @sshOpts "$sshUser@$restore" "clickhouse-client --secure --host localhost --port 9440 --query 'DROP TABLE IF EXISTS nexus.events_restore_check SYNC'" 2>$null | Out-Null
+      ssh @sshOpts "$sshUser@$restore" "clickhouse-client --secure --accept-invalid-certificate --host localhost --port 9440 --query 'DROP TABLE IF EXISTS nexus.events_restore_check SYNC'" 2>$null | Out-Null
       if ([int]$rc -le 0) { throw "[ch-backup-repo] cross-node restore produced 0 rows" }
       Write-Host "[ch-backup-repo] cross-node BACKUP/RESTORE round-trip GREEN (shared NFS repository, ADR-0032)"
     PWSH
