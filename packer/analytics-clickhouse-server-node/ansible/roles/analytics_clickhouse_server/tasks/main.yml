@@ -1,0 +1,131 @@
+---
+# analytics_clickhouse_server role -- install clickhouse-server + clickhouse-
+# client (vendor apt), the systemd unit (DISABLED -- the Terraform server-config
+# overlay renders config.d/*.xml + users.d/*.xml then enables it per-host), and
+# the per-node dirs. Runs after the four shared nexus_* roles + analytics_firstboot.
+#
+# Config model (ADR-0029): keep the package's /etc/clickhouse-server/ base; the
+# Terraform overlay drops cluster deltas into config.d/ + users.d/ (ClickHouse
+# merges them natively). Six of these clone into the 3 shards x 2 replicas.
+
+# ─── ClickHouse vendor apt repo ──────────────────────────────────────────
+- name: Fetch ClickHouse repo GPG key (ASCII-armored, over HTTPS)
+  ansible.builtin.get_url:
+    url: "{{ analytics_ch_repo_key_url }}"
+    dest: /tmp/clickhouse-key.asc
+    mode: "0644"
+
+- name: Install ClickHouse repo keyring (dearmored)
+  ansible.builtin.command:
+    cmd: "gpg --batch --yes --dearmor -o {{ analytics_ch_repo_keyring }} /tmp/clickhouse-key.asc"
+    creates: "{{ analytics_ch_repo_keyring }}"
+
+- name: Ensure keyring is world-readable
+  ansible.builtin.file:
+    path: "{{ analytics_ch_repo_keyring }}"
+    mode: "0644"
+    owner: root
+    group: root
+
+- name: Add ClickHouse apt repo
+  ansible.builtin.apt_repository:
+    repo: "{{ analytics_ch_repo_line }}"
+    filename: clickhouse
+    state: present
+    update_cache: true
+
+# ─── ClickHouse server + client install ──────────────────────────────────
+# DEBIAN_FRONTEND=noninteractive so the clickhouse-server postinst does not
+# prompt for the default-user password (left empty; RBAC overlay manages auth).
+- name: Install clickhouse-server + clickhouse-client (vendor apt)
+  ansible.builtin.apt:
+    name: "{{ ch_pkgs }}"
+    state: present
+    update_cache: true
+  vars:
+    ch_pkgs: >-
+      {{
+        ['clickhouse-server', 'clickhouse-client']
+        if analytics_clickhouse_version == 'latest'
+        else ['clickhouse-server=' + analytics_clickhouse_version, 'clickhouse-client=' + analytics_clickhouse_version]
+      }}
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+# ─── Disable + mask the apt-shipped clickhouse-server.service ─────────────
+# Our canonical unit is nexus-clickhouse-server.service, gated on the TF-
+# rendered config.d marker. The apt unit would start on boot with the default
+# (plain-port, localhost-only) config and race ours.
+- name: Stop clickhouse-server.service (apt-installed) if running
+  ansible.builtin.systemd:
+    name: clickhouse-server.service
+    state: stopped
+  failed_when: false
+
+- name: Disable + mask clickhouse-server.service (apt-installed)
+  ansible.builtin.systemd:
+    name: clickhouse-server.service
+    enabled: false
+    masked: true
+
+# ─── ClickHouse system account (package creates it; verify only) ──────────
+- name: Verify clickhouse group exists (package-created)
+  ansible.builtin.getent:
+    database: group
+    key: "{{ analytics_ch_group }}"
+
+- name: Verify clickhouse user exists (package-created)
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ analytics_ch_user }}"
+
+# ─── Per-node dirs ────────────────────────────────────────────────────────
+# - identity dir (firstboot writes node-identity.env here; the TF overlay reads
+#   NEXUS_CH_SHARD / NEXUS_CH_REPLICA from it)
+# - config.d/ + users.d/ + tls (the TF overlay writes deltas here)
+# - backup mount point (TF backup-repo overlay mounts NFS here, ADR-0032)
+- name: Create per-node ClickHouse directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ analytics_server_identity_dir }}", owner: root, group: "{{ analytics_ch_group }}", mode: "0750" }
+    - { path: "/etc/clickhouse-server/config.d", owner: root, group: "{{ analytics_ch_group }}", mode: "0750" }
+    - { path: "/etc/clickhouse-server/users.d", owner: root, group: "{{ analytics_ch_group }}", mode: "0750" }
+    - { path: "/etc/clickhouse-server/tls", owner: root, group: "{{ analytics_ch_group }}", mode: "0750" }
+    - { path: "{{ analytics_backup_mount }}", owner: "{{ analytics_ch_user }}", group: "{{ analytics_ch_group }}", mode: "0750" }
+
+# ─── nexus-clickhouse-server.service (DISABLED at bake) ───────────────────
+- name: Install nexus-clickhouse-server.service systemd unit
+  ansible.builtin.template:
+    src: nexus-clickhouse-server.service.j2
+    dest: /etc/systemd/system/nexus-clickhouse-server.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Ensure nexus-clickhouse-server.service is disabled at bake
+  ansible.builtin.systemd:
+    name: nexus-clickhouse-server.service
+    enabled: false
+    daemon_reload: true
+
+# ─── Verify ──────────────────────────────────────────────────────────────
+- name: Verify ClickHouse server + client binaries
+  ansible.builtin.command: "{{ item }}"
+  changed_when: false
+  loop:
+    - clickhouse-server --version
+    - clickhouse-client --version
+  register: analytics_server_verify
+
+- name: Show installed ClickHouse version
+  ansible.builtin.debug:
+    msg:
+      - "clickhouse-server: {{ analytics_server_verify.results[0].stdout }}"
+      - "clickhouse-client: {{ analytics_server_verify.results[1].stdout }}"
+      - "Source:            {{ analytics_clickhouse_version }}"

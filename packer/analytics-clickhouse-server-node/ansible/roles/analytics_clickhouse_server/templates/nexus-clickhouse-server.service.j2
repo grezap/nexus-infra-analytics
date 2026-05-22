@@ -1,0 +1,36 @@
+[Unit]
+Description=Nexus ClickHouse Server (shard-replica data node)
+Documentation=https://clickhouse.com/docs
+After=network-online.target analytics-node-firstboot.service
+Wants=network-online.target
+Requires=analytics-node-firstboot.service
+# Delivered DISABLED by the analytics_clickhouse_server Packer role.
+# role-overlay-clickhouse-server-config.tf renders /etc/clickhouse-server/
+# config.d/nexus-cluster.xml (remote_servers + macros + zookeeper->Keeper + TLS
+# + listen), users.d/nexus-rbac.xml, then enables + starts this unit. ClickHouse
+# natively merges config.d/ + users.d/ over the package base config.xml/users.xml.
+ConditionPathExists=/etc/clickhouse-server/config.d/nexus-cluster.xml
+# Generous StartLimit so a slow-to-boot peer / Keeper doesn't make systemd give
+# up on rejoin (StartLimit* live in [Unit], not [Service]).
+StartLimitBurst=15
+StartLimitIntervalSec=600
+
+[Service]
+Type=simple
+User={{ analytics_ch_user }}
+Group={{ analytics_ch_group }}
+EnvironmentFile=-{{ analytics_server_identity_dir }}/node-identity.env
+ExecStart=/usr/bin/clickhouse-server --config-file=/etc/clickhouse-server/config.xml
+Restart=on-failure
+RestartSec=10
+# /var/run is tmpfs; systemd auto-creates /run/clickhouse-server per start
+# (memory/feedback_systemd_runtime_directory_tmpfs.md). config.d points pid +
+# format_schema paths under here / the package data dir.
+RuntimeDirectory=clickhouse-server
+RuntimeDirectoryMode=0755
+LimitNOFILE=1048576
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

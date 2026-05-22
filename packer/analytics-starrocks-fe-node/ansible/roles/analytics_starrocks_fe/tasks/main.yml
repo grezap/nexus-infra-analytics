@@ -1,0 +1,108 @@
+---
+# analytics_starrocks_fe role -- install JDK + StarRocks FE from the release
+# tarball, the systemd unit (DISABLED -- the Terraform fe-bootstrap overlay
+# renders fe.conf + bootstraps the leader / joins followers then enables it),
+# and the per-node dirs. Runs after the shared nexus_* roles + analytics_firstboot.
+
+# ─── JDK (FE is Java) ────────────────────────────────────────────────────
+- name: Install JDK for the StarRocks FE
+  ansible.builtin.apt:
+    name: "{{ analytics_jdk_package }}"
+    state: present
+    update_cache: true
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+# ─── StarRocks system account ────────────────────────────────────────────
+- name: Create starrocks group
+  ansible.builtin.group:
+    name: "{{ analytics_sr_group }}"
+    system: true
+
+- name: Create starrocks user
+  ansible.builtin.user:
+    name: "{{ analytics_sr_user }}"
+    group: "{{ analytics_sr_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ analytics_sr_home }}"
+    create_home: false
+
+# ─── Download + unpack the StarRocks release tarball ─────────────────────
+- name: Download StarRocks release tarball
+  ansible.builtin.get_url:
+    url: "{{ analytics_starrocks_download_url }}"
+    dest: "/tmp/starrocks-{{ analytics_starrocks_version }}.tar.gz"
+    mode: "0644"
+    timeout: 120
+
+- name: Create install root
+  ansible.builtin.file:
+    path: "{{ analytics_sr_home }}"
+    state: directory
+    owner: "{{ analytics_sr_user }}"
+    group: "{{ analytics_sr_group }}"
+    mode: "0755"
+
+- name: Unpack StarRocks (strip the top-level StarRocks-<ver> dir)
+  ansible.builtin.unarchive:
+    src: "/tmp/starrocks-{{ analytics_starrocks_version }}.tar.gz"
+    dest: "{{ analytics_sr_home }}"
+    remote_src: true
+    extra_opts: ["--strip-components=1"]
+    owner: "{{ analytics_sr_user }}"
+    group: "{{ analytics_sr_group }}"
+    creates: "{{ analytics_sr_home }}/fe/bin/start_fe.sh"
+
+- name: Remove the tarball
+  ansible.builtin.file:
+    path: "/tmp/starrocks-{{ analytics_starrocks_version }}.tar.gz"
+    state: absent
+
+# ─── Per-node dirs ────────────────────────────────────────────────────────
+# - meta + log under the FE install (owned by starrocks)
+# - identity dir (firstboot writes node-identity.env)
+# - backup mount point (NFS; ADR-0032)
+- name: Create per-node FE directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ analytics_sr_home }}/fe/meta", owner: "{{ analytics_sr_user }}", group: "{{ analytics_sr_group }}", mode: "0750" }
+    - { path: "{{ analytics_sr_home }}/fe/conf/tls", owner: "{{ analytics_sr_user }}", group: "{{ analytics_sr_group }}", mode: "0750" }
+    - { path: "{{ analytics_sr_identity_dir }}", owner: root, group: "{{ analytics_sr_group }}", mode: "0750" }
+    - { path: "{{ analytics_backup_mount }}", owner: "{{ analytics_sr_user }}", group: "{{ analytics_sr_group }}", mode: "0750" }
+
+# ─── nexus-starrocks-fe.service (DISABLED at bake) ───────────────────────
+- name: Install nexus-starrocks-fe.service systemd unit
+  ansible.builtin.template:
+    src: nexus-starrocks-fe.service.j2
+    dest: /etc/systemd/system/nexus-starrocks-fe.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Ensure nexus-starrocks-fe.service is disabled at bake
+  ansible.builtin.systemd:
+    name: nexus-starrocks-fe.service
+    enabled: false
+    daemon_reload: true
+
+# ─── Verify ──────────────────────────────────────────────────────────────
+- name: Verify FE binary + JDK present
+  ansible.builtin.command: "{{ item }}"
+  changed_when: false
+  loop:
+    - "test -x {{ analytics_sr_home }}/fe/bin/start_fe.sh"
+    - "java -version"
+  register: analytics_fe_verify
+
+- name: Show StarRocks FE install summary
+  ansible.builtin.debug:
+    msg:
+      - "StarRocks FE: {{ analytics_sr_home }}/fe (version {{ analytics_starrocks_version }})"
+      - "JDK: {{ analytics_jdk_package }}"

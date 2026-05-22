@@ -1,0 +1,25 @@
+---
+# analytics_clickhouse_keeper role defaults
+
+# Version source: 'latest' = current stable clickhouse-keeper from the
+# ClickHouse vendor apt repo. Override to a specific version string (e.g.
+# 24.8.4.13) to pin; the apt task then installs clickhouse-keeper=<version>.
+analytics_clickhouse_version: latest
+
+# ClickHouse vendor apt repo (packages.clickhouse.com). The GPG key is an
+# ASCII-armored key fetched over HTTPS (works for both rpm + deb repos) --
+# avoids the flaky keyserver recv-keys method.
+analytics_ch_repo_key_url: https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key
+analytics_ch_repo_keyring: /usr/share/keyrings/clickhouse-keyring.gpg
+analytics_ch_repo_line: "deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg arch=amd64] https://packages.clickhouse.com/deb stable main"
+
+# System account clickhouse-keeper runs as (the package creates it; the role
+# verifies presence).
+analytics_ch_user: clickhouse
+analytics_ch_group: clickhouse
+
+# Per-node dirs. keeper_config.xml is rendered by the Terraform keeper-config
+# overlay into config_dir; node-identity.env is written there by firstboot.
+analytics_keeper_config_dir: /etc/nexus-clickhouse-keeper
+analytics_keeper_data_dir: /var/lib/nexus-clickhouse-keeper
+analytics_keeper_log_dir: /var/log/nexus-clickhouse-keeper

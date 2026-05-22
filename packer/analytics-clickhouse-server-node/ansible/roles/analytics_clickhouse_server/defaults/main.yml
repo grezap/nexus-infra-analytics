@@ -1,0 +1,27 @@
+---
+# analytics_clickhouse_server role defaults
+
+# Version source: 'latest' = current stable clickhouse-server + clickhouse-client
+# from the ClickHouse vendor apt repo. Override to pin (e.g. 24.8.4.13).
+analytics_clickhouse_version: latest
+
+# ClickHouse vendor apt repo (same as the keeper role -- HTTPS ASCII-armored
+# key, not the flaky keyserver method).
+analytics_ch_repo_key_url: https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key
+analytics_ch_repo_keyring: /usr/share/keyrings/clickhouse-keyring.gpg
+analytics_ch_repo_line: "deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg arch=amd64] https://packages.clickhouse.com/deb stable main"
+
+# System account clickhouse-server runs as (the package creates it).
+analytics_ch_user: clickhouse
+analytics_ch_group: clickhouse
+
+# Identity dir written by firstboot (node-identity.env incl. NEXUS_CH_SHARD /
+# NEXUS_CH_REPLICA). Distinct from the package's /etc/clickhouse-server config
+# tree, into which the Terraform server-config overlay drops config.d/*.xml +
+# users.d/*.xml deltas.
+analytics_server_identity_dir: /etc/nexus-clickhouse
+
+# Backup repository mount point (NFS from nexus-gateway, ADR-0032). The
+# Terraform backup-repo overlay mounts 192.168.70.1:/analytics-backups here +
+# points the server's <backups> disk at clickhouse/.
+analytics_backup_mount: /var/backups/analytics

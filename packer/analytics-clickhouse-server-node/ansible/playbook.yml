@@ -1,0 +1,28 @@
+---
+# analytics-clickhouse-server-node -- Ansible playbook (local, run by Packer
+# ansible-local provisioner).
+#
+# Per-engine template per memory/feedback_per_cluster_state_per_engine_
+# template.md: installs clickhouse-server + clickhouse-client. The Keeper
+# quorum lives in the sibling analytics-clickhouse-keeper-node template.
+#
+# Order: nexus_identity -> nexus_network -> nexus_firewall -> nexus_observability
+# -> analytics_firstboot -> analytics_clickhouse_server.
+
+- name: Configure analytics-clickhouse-server-node template (Phase 0.G.5)
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+
+  vars:
+    target_user: "{{ target_user | default('nexusadmin') }}"
+    analytics_clickhouse_version: "{{ analytics_clickhouse_version | default('latest') }}"
+
+  roles:
+    - nexus_identity
+    - nexus_network
+    - nexus_firewall
+    - nexus_observability
+    - analytics_firstboot
+    - analytics_clickhouse_server

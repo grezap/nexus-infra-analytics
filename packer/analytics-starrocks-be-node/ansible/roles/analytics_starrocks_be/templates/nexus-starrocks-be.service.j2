@@ -1,0 +1,32 @@
+[Unit]
+Description=Nexus StarRocks BE (Backend -- tablet storage + compute)
+Documentation=https://docs.starrocks.io/docs/deployment/
+After=network-online.target analytics-node-firstboot.service
+Wants=network-online.target
+Requires=analytics-node-firstboot.service
+# Delivered DISABLED by the analytics_starrocks_be Packer role.
+# role-overlay-starrocks-be-join.tf renders {{ analytics_sr_home }}/be/conf/be.conf
+# (per-host priority_networks + storage_root_path + ports), joins the BE via
+# ALTER SYSTEM ADD BACKEND on the FE leader, then enables this unit.
+ConditionPathExists={{ analytics_sr_home }}/be/conf/be.conf
+StartLimitBurst=15
+StartLimitIntervalSec=600
+
+[Service]
+Type=simple
+User={{ analytics_sr_user }}
+Group={{ analytics_sr_group }}
+Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+EnvironmentFile=-{{ analytics_sr_identity_dir }}/node-identity.env
+# Foreground (start_be.sh without --daemon) so systemd supervises the BE directly.
+ExecStart={{ analytics_sr_home }}/be/bin/start_be.sh
+Restart=on-failure
+RestartSec=10
+LimitNOFILE=1048576
+# BE benefits from a high vm.max_map_count; set at first boot or via sysctl drop-in
+# (a ratification step if the default is too low -- handbook §3.x).
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

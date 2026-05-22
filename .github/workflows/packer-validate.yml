@@ -1,0 +1,146 @@
+name: packer-validate
+
+# Mirrors nexus-infra-oltp/.github/workflows/packer-validate.yml shape.
+# Per-engine Packer templates + per-cluster Terraform envs (the 0.G.3.5
+# architectural canon, applied from day one in this repo per
+# memory/feedback_per_cluster_state_per_engine_template.md). Five-job
+# structure: packer (matrix) + terraform (matrix) + ansible-lint +
+# shell-lint + gitleaks.
+#
+# The matrix grows per sub-phase: 0.G.5 lands the ClickHouse keeper + server
+# templates + envs/analytics-clickhouse; 0.G.6 adds the StarRocks FE + BE
+# templates + envs/analytics-starrocks. Per memory/feedback_post_push_ci_
+# check.md: every push must be CI-green-verified before considering work done.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Force Node 24 runtime for every JS action regardless of pinned version.
+# Node 20 is deprecated on GitHub Actions runners as of 2026-06-02; this
+# env opts in now. Becomes a no-op once Node 24 is the runner default.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  packer:
+    name: Packer validate (${{ matrix.template }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # max-parallel: 1 -- mirrors vmware lesson (GitHub-API rate limit on
+      # `packer init` plugin resolution).
+      max-parallel: 1
+      matrix:
+        template:
+          - analytics-clickhouse-keeper-node  # Phase 0.G.5 per-engine (ClickHouse Keeper quorum)
+          - analytics-clickhouse-server-node  # Phase 0.G.5 per-engine (ClickHouse shard-replica data node)
+          - analytics-starrocks-fe-node       # Phase 0.G.6 per-engine (StarRocks FE quorum)
+          - analytics-starrocks-be-node       # Phase 0.G.6 per-engine (StarRocks BE tablet plane)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-packer@v3
+        with:
+          version: "1.11.2"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.config/packer/plugins
+          key: packer-plugins-${{ runner.os }}-${{ hashFiles('packer/**/*.pkr.hcl') }}
+          restore-keys: |
+            packer-plugins-${{ runner.os }}-
+
+      - name: packer init
+        working-directory: packer/${{ matrix.template }}
+        env:
+          PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: packer init .
+
+      - name: packer fmt -check
+        working-directory: packer/${{ matrix.template }}
+        run: packer fmt -check -recursive .
+
+      - name: packer validate
+        working-directory: packer/${{ matrix.template }}
+        # -syntax-only skips credential / network probe -- CI has no VMware host
+        run: packer validate -syntax-only .
+
+  terraform:
+    name: Terraform fmt + validate (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env:
+          - envs/analytics-clickhouse  # Phase 0.G.5 per-cluster (9 ClickHouse VMs)
+          - envs/analytics-starrocks   # Phase 0.G.6 per-cluster (6 StarRocks VMs)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+      - name: terraform fmt -check (repo-wide)
+        run: terraform -chdir=terraform fmt -check -recursive
+      - name: terraform init (no backend)
+        run: terraform -chdir=terraform/${{ matrix.env }} init -backend=false
+      - name: terraform validate
+        run: terraform -chdir=terraform/${{ matrix.env }} validate
+
+  ansible-lint:
+    name: ansible-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ansible-lint ansible
+      - run: ansible-lint packer/analytics-clickhouse-keeper-node/ansible/ packer/analytics-clickhouse-server-node/ansible/ packer/analytics-starrocks-fe-node/ansible/ packer/analytics-starrocks-be-node/ansible/ packer/_shared/ansible/
+
+  shell-lint:
+    name: ShellCheck + PSScriptAnalyzer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck (firstboot + role bash)
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: ./packer/_shared/ansible/roles/analytics_firstboot/files
+          severity: warning
+        continue-on-error: true
+      - name: PSScriptAnalyzer (operator wrapper + smoke scripts)
+        shell: pwsh
+        run: |
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+          $targets = @('scripts') | Where-Object { Test-Path $_ }
+          $issues = foreach ($t in $targets) {
+            Invoke-ScriptAnalyzer -Path $t -Recurse -Severity Warning,Error `
+              -ExcludeRule PSAvoidUsingWriteHost,PSUseShouldProcessForStateChangingFunctions
+          }
+          if ($issues) {
+            $issues | Format-Table -AutoSize | Out-String | Write-Host
+            $errors = $issues | Where-Object Severity -eq 'Error'
+            if ($errors) { throw "PSScriptAnalyzer: $($errors.Count) error(s)" }
+          } else {
+            Write-Host "PSScriptAnalyzer: clean"
+          }
+
+  gitleaks:
+    name: gitleaks (secret scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks detect
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          GITLEAKS_ENABLE_SUMMARY: "true"

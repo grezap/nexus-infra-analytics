@@ -1,0 +1,19 @@
+---
+# analytics_starrocks_fe role defaults
+analytics_starrocks_version: "3.3.5"
+analytics_starrocks_download_url: "https://releases.starrocks.io/starrocks/StarRocks-3.3.5.tar.gz"
+analytics_jdk_package: "openjdk-17-jre-headless"
+
+# System account StarRocks runs as (created by this role).
+analytics_sr_user: starrocks
+analytics_sr_group: starrocks
+
+# Install root (the release tarball's fe/ + be/ land under here).
+analytics_sr_home: /opt/starrocks
+
+# Identity dir written by firstboot (node-identity.env). The fe-bootstrap
+# overlay reads it + renders fe.conf with per-host priority_networks.
+analytics_sr_identity_dir: /etc/nexus-starrocks
+
+# Backup repository mount point (NFS from nexus-gateway, ADR-0032).
+analytics_backup_mount: /var/backups/analytics

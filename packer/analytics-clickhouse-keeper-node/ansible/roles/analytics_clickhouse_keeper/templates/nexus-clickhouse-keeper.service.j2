@@ -1,0 +1,36 @@
+[Unit]
+Description=Nexus ClickHouse Keeper (RAFT coordination quorum)
+Documentation=https://clickhouse.com/docs/en/guides/sre/keeper/clickhouse-keeper
+After=network-online.target analytics-node-firstboot.service
+Wants=network-online.target
+Requires=analytics-node-firstboot.service
+# Delivered DISABLED by the analytics_clickhouse_keeper Packer role.
+# role-overlay-clickhouse-keeper-config.tf renders {{ analytics_keeper_config_dir }}/
+# keeper_config.xml (which needs the Terraform-time per-host server_id +
+# raft_configuration), then enables + starts this unit.
+ConditionPathExists={{ analytics_keeper_config_dir }}/keeper_config.xml
+# Generous StartLimit so a slow-to-boot peer doesn't make systemd give up on
+# RAFT quorum rejoin (mirrors the kafka KRaft / vault-transit boot-race lesson;
+# memory/feedback_vault_transit_boot_race_recovery.md). StartLimit* live in
+# [Unit], NOT [Service] (systemd silently ignores them in [Service]).
+StartLimitBurst=15
+StartLimitIntervalSec=600
+
+[Service]
+Type=simple
+User={{ analytics_ch_user }}
+Group={{ analytics_ch_group }}
+EnvironmentFile=-{{ analytics_keeper_config_dir }}/node-identity.env
+ExecStart=/usr/bin/clickhouse-keeper --config-file={{ analytics_keeper_config_dir }}/keeper_config.xml
+Restart=on-failure
+RestartSec=10
+# /var/run is tmpfs (wiped on reboot); systemd auto-creates /run/nexus-
+# clickhouse-keeper per memory/feedback_systemd_runtime_directory_tmpfs.md.
+RuntimeDirectory=nexus-clickhouse-keeper
+RuntimeDirectoryMode=0755
+LimitNOFILE=1048576
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
