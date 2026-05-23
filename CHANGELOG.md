@@ -4,7 +4,15 @@ All notable changes to `nexus-infra-analytics` are documented in this file. Form
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-05-23
+
+### Phase 0.G analytics tier SEALED — ClickHouse (0.G.5) + StarRocks (0.G.6) live-ratified + cold-rebuild-proven
+
+Both analytics clusters are live on the 66-VM VMware lab, each rebuilt from zero (destroy → `packer build` → from-zero `apply` → smoke) with **no toy databases** — sharding AND replication proven in the smoke gates.
+
+- **0.G.5 ClickHouse — SEALED.** 3 ClickHouse Keeper (RAFT quorum, NOT ZooKeeper) + 3 shards × 2 replicas on per-host Vault PKI mTLS. `nexus.events` Distributed over ReplicatedMergeTree: sharded ×3 AND replicated ×2 (Distributed `count()` = 600, all shards converged); SQL RBAC; round-robin DNS (`clickhouse.nexus.lab` → all 6, no VIP); NFS backup repo with a cross-node BACKUP→RESTORE round-trip. **`smoke-0.G.5.ps1` 129/129 GREEN**, cold-rebuild proven.
+- **0.G.6 StarRocks — SEALED (shared-nothing).** 3 FE (1 leader + 2 followers, BDB-JE quorum, `--helper` join) + 3 BE on **JDK 21**, StarRocks **3.5.17**. `nexus.events` `DISTRIBUTED BY HASH BUCKETS 6` × `replication_num=3` — sharded across 3 BE AND replicated ×3; SQL RBAC; round-robin DNS (`starrocks-fe.nexus.lab`); broker-less NFS `file://` backup repo. **`smoke-0.G.6.ps1` 73/73 GREEN**, cold-rebuild proven. The CN / shared-data (storage-compute-separation) tier is deferred to Phase 0.L (object storage).
+- **Ratification transients** (15 total) diagnosed + fixed in source and chronicled in `docs/handbook.md` §3.x (ClickHouse #1–#9) + §3.B (StarRocks S1–S7): incl. ReplicatedMergeTree interserver part-fetch over the backplane (`/etc/hosts`), config-overlay restart, NFSv4 `fsid=0` pseudo-root mount, dnsmasq round-robin via `addn-hosts`, ClickHouse zk path `{uuid}`, distributed-DDL readiness gate; StarRocks public-CDN lockdown (3.5.17 via the download-portal API), deb13 openjdk-21, `/var/tmp` for the 2.2 GB tarball, MariaDB `--skip-ssl`, plus VMware-under-load power-on / NIC-carrier recoveries.
 
 ### Added — Phase 0.G.6 — StarRocks (3 FE BDB-JE quorum + 3 BE) scaffolded (2026-05-22)
 

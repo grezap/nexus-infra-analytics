@@ -4,8 +4,8 @@
 [![Terraform](https://img.shields.io/badge/Terraform-1.9+-purple)](https://www.terraform.io/)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Blueprint](https://img.shields.io/badge/blueprint-nexus--platform--plan-orange)](https://github.com/grezap/nexus-platform-plan)
-[![Phase](https://img.shields.io/badge/phase-0.G.5%20ClickHouse%20%2B%200.G.6%20StarRocks%20SCAFFOLDED-yellow)](./CHANGELOG.md)
-[![Release](https://img.shields.io/badge/release-unreleased-lightgrey)](./CHANGELOG.md)
+[![Phase](https://img.shields.io/badge/phase-0.G.5%20ClickHouse%20%2B%200.G.6%20StarRocks%20SEALED-brightgreen)](./CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-v0.1.0-blue)](./CHANGELOG.md)
 
 Analytics data tier of the **NexusPlatform 66-VM lab** — ClickHouse (Keeper quorum + sharded/replicated MergeTree) · StarRocks (FE quorum + BE tablet sharding). 15 VMs on tier `04-analytics`.
 
@@ -13,7 +13,7 @@ Analytics data tier of the **NexusPlatform 66-VM lab** — ClickHouse (Keeper qu
 >
 > **➜ Want to rebuild the analytics tier from zero?** [`docs/handbook.md`](./docs/handbook.md) is the operator canon (EXACT from-zero replay per `feedback_handbook_standard.md` invariant 2).
 >
-> **Phase 0.G.5 status (2026-05-22): scaffolded — per-engine Packer templates + per-cluster Terraform state + overlays + smoke gate + demos + handbook + 3-layer canon sweep; live-ratify + cold-rebuild proof pending (operator-owned `packer build` / `terraform apply`).** Built on the per-cluster + per-engine architectural canon (`feedback_per_cluster_state_per_engine_template.md`) from day one.
+> **Phase 0.G analytics tier SEALED (2026-05-23, `v0.1.0`):** both clusters are **live-ratified + cold-rebuild-proven** on the per-cluster + per-engine architectural canon (`feedback_per_cluster_state_per_engine_template.md`). ClickHouse `smoke-0.G.5.ps1` **129/129 GREEN**; StarRocks (shared-nothing) `smoke-0.G.6.ps1` **73/73 GREEN** (StarRocks 3.5.17, JDK 21). 15 apply-time transients diagnosed + fixed in source ([handbook §3.x + §3.B](./docs/handbook.md)). StarRocks CN / shared-data tier deferred to Phase 0.L (object storage).
 
 ## Architecture at a glance
 
@@ -32,8 +32,8 @@ Both stores are genuine multi-node clusters that are **sharded AND replicated** 
 
 | Sub-phase | Cluster | VMs | nexus-cli release | Status |
 |---|---|---|---|---|
-| 0.G.5 | ClickHouse (3 shards × 2 replicas + 3 Keeper) | 9 | ClickHouseAdapter (later unified CLI phase) | scaffolded 2026-05-22 — per-engine templates `analytics-clickhouse-{keeper,server}-node` + `envs/analytics-clickhouse/` + `smoke-0.G.5.ps1` + demos + handbook; live-ratify + cold-rebuild pending |
-| 0.G.6 | StarRocks (3 FE + 3 BE) | 6 | StarRocksAdapter (later unified CLI phase) | scaffolded 2026-05-22 — per-engine templates `analytics-starrocks-{fe,be}-node` + `envs/analytics-starrocks/` (7 overlays incl. fe-bootstrap/be-join) + `smoke-0.G.6.ps1` + 11 demos + handbook §1.B; builds after 0.G.5 is sealed + its VMs stopped; live-ratify + cold-rebuild pending |
+| 0.G.5 | ClickHouse (3 shards × 2 replicas + 3 Keeper) | 9 | ClickHouseAdapter (later unified CLI phase) | **SEALED 2026-05-23** — live-ratified + cold-rebuild-proven; `smoke-0.G.5.ps1` **129/129** |
+| 0.G.6 | StarRocks (3 FE + 3 BE, shared-nothing) | 6 | StarRocksAdapter (later unified CLI phase) | **SEALED 2026-05-23** — live-ratified + cold-rebuild-proven (StarRocks 3.5.17, JDK 21); `smoke-0.G.6.ps1` **73/73**; CN/shared-data tier deferred to 0.L |
 
 The `nexus-cli` `ClickHouseAdapter` + `StarRocksAdapter` ship in the later unified CLI adapter phase (covering all 7 data clusters at once); they shell out over SSH to on-node `clickhouse-client` / `mysql` (StarRocks speaks the MySQL protocol) — no managed DB driver linked into the AOT binary, ≤30 MB ([ADR-0024](https://github.com/grezap/nexus-platform-plan/blob/main/docs/adr/ADR-0024-aot-gate-amendment-and-cluster-adapter-framework.md)). The System B demos for all 11 verb groups are authored now (in [`nexus-cli/docs/demos/`](https://github.com/grezap/nexus-cli/tree/main/docs/demos)) and executed via the smoke gate / SSH until the adapters land.
 
