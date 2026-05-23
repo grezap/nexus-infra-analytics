@@ -15,3 +15,9 @@
 
 skip_list:
   - var-naming[no-role-prefix]
+  # yaml[line-length]: these per-engine roles carry long vendor URLs (e.g. the
+  # OS-suffixed StarRocks release tarball) + long explanatory defaults past 160
+  # chars. Wrapping Jinja `default(...)` scalars hurts readability more than the
+  # lint helps for an internal Packer repo. Disabled (matches the lenient posture
+  # of var-naming above).
+  - yaml[line-length]
