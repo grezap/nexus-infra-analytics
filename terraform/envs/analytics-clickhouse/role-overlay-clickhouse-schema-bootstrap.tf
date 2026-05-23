@@ -26,7 +26,7 @@ resource "null_resource" "clickhouse_schema_bootstrap" {
   triggers = {
     server_cfg_id = length(null_resource.clickhouse_server_config) > 0 ? null_resource.clickhouse_server_config[0].id : "disabled"
     cluster_name  = var.clickhouse_cluster_name
-    schema_v      = "4"
+    schema_v      = "5"
     ssh_user      = var.analytics_node_user
   }
 
@@ -64,6 +64,24 @@ if [ -z "$ADMIN_PW" ] || [ -z "$APP_PW" ]; then
   exit 1
 fi
 echo "[schema-bootstrap] KV creds read (admin len=$${#ADMIN_PW}, app len=$${#APP_PW})"
+
+# 0. Distributed-DDL readiness gate. On a cold boot a node can answer SELECT 1
+# (service NIC) before its distributed-DDL worker has connected to Keeper over
+# the backplane -- the first ON CLUSTER task then times out (Code 159) with that
+# host stuck Inactive (handbook §3.x). Probe with a throwaway ON CLUSTER DDL
+# (short per-task timeout) until it completes on ALL hosts, so the real DDL below
+# never races worker registration. Fails fast + clearly if a worker never joins
+# (e.g. a backplane NIC with no carrier).
+ddl_ready=0
+for i in $(seq 1 30); do
+  if CH --distributed_ddl_task_timeout=15 --query "CREATE DATABASE IF NOT EXISTS nexus_ddlready ON CLUSTER __CLUSTER__" >/dev/null 2>&1; then
+    CH --query "DROP DATABASE IF EXISTS nexus_ddlready ON CLUSTER __CLUSTER__ SYNC" >/dev/null 2>&1 || true
+    ddl_ready=1; break
+  fi
+  sleep 5
+done
+[ "$ddl_ready" = "1" ] || { echo "ERROR: distributed DDL did not become ready on all cluster hosts (a node's DDL worker can't reach Keeper -- check backplane NIC carrier)" >&2; exit 1; }
+echo "[schema-bootstrap] distributed DDL ready on all cluster hosts"
 
 # 1. RBAC (ON CLUSTER so it lands on every node's local access storage).
 CH --query "CREATE ROLE IF NOT EXISTS app_ro ON CLUSTER __CLUSTER__"
