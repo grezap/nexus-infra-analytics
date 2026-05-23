@@ -41,7 +41,7 @@ resource "null_resource" "starrocks_schema_bootstrap" {
       # PowerShell double-interpolation trap; feedback_terraform_heredoc_powershell.md).
       $bootTmpl = @'
 set -euo pipefail
-MYSQL() { mysql -h 127.0.0.1 -P 9030 -u root "$@"; }
+MYSQL() { mysql --skip-ssl -h 127.0.0.1 -P 9030 -u root "$@"; }
 
 VADDR=$(grep -oP 'address\s*=\s*"\K[^"]+' /etc/vault-agent/00-base.hcl | head -1)
 VTOKEN=$(sudo cat /var/run/nexus-vault-agent/token)
@@ -57,7 +57,7 @@ echo "[sr-schema-bootstrap] KV creds read (root len=$${#ROOT_PW}, app len=$${#AP
 
 # 1. Set root password (idempotent: re-set is harmless). After this, root needs -p.
 MYSQL -e "SET PASSWORD FOR 'root' = PASSWORD('$ROOT_PW')" 2>/dev/null || MYSQL -p"$ROOT_PW" -e "SELECT 1" >/dev/null
-RP() { mysql -h 127.0.0.1 -P 9030 -u root -p"$ROOT_PW" "$@"; }
+RP() { mysql --skip-ssl -h 127.0.0.1 -P 9030 -u root -p"$ROOT_PW" "$@"; }
 
 # 2. RBAC.
 RP -e "CREATE DATABASE IF NOT EXISTS nexus"
@@ -68,7 +68,10 @@ RP -e "GRANT app_rw TO USER 'app'@'%'"
 echo "[sr-schema-bootstrap] RBAC created (role app_rw; user app)"
 
 # 3. Schema: hash-distributed (sharded) + replication_num=3 (replicated).
-RP -e "CREATE TABLE IF NOT EXISTS nexus.events (event_id BIGINT, ts DATETIME, bucket INT, payload VARCHAR(64)) DUPLICATE KEY(event_id) DISTRIBUTED BY HASH(event_id) BUCKETS 6 PROPERTIES(\"replication_num\" = \"3\")"
+# DROP+CREATE (not IF NOT EXISTS): deterministic so a re-fire always starts from
+# a fresh empty table -- the 60-row INSERT proof below never double-counts.
+RP -e "DROP TABLE IF EXISTS nexus.events"
+RP -e "CREATE TABLE nexus.events (event_id BIGINT, ts DATETIME, bucket INT, payload VARCHAR(64)) DUPLICATE KEY(event_id) DISTRIBUTED BY HASH(event_id) BUCKETS 6 PROPERTIES(\"replication_num\" = \"3\")"
 echo "[sr-schema-bootstrap] table nexus.events created (BUCKETS 6 x replication_num 3)"
 
 # 3b. Insert a modest demo set (build a VALUES list of 60 rows).
@@ -100,7 +103,7 @@ echo "[sr-schema-bootstrap] EXIT GATE GREEN -- sharded (BUCKETS 6) across 3 BE A
       }
 
       # Cross-BE tablet distribution check (TabletNum column > 0 on all 3 BE).
-      $rows = (ssh @sshOpts "$sshUser@$leaderIp" "mysql -h 127.0.0.1 -P 9030 -u root -p`$(sudo cat /dev/null) -N -e 'SHOW BACKENDS' 2>/dev/null" 2>&1 | Out-String)
+      $rows = (ssh @sshOpts "$sshUser@$leaderIp" "mysql --skip-ssl -h 127.0.0.1 -P 9030 -u root -p`$(sudo cat /dev/null) -N -e 'SHOW BACKENDS' 2>/dev/null" 2>&1 | Out-String)
       Write-Host "[sr-schema-bootstrap] (tablet distribution verified in-script via SHOW BACKENDS; smoke-0.G.6 re-checks per-BE TabletNum)"
     PWSH
   }

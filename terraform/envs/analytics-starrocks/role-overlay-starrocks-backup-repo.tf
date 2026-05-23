@@ -47,13 +47,17 @@ resource "null_resource" "starrocks_backup_repo" {
       $allNodes   = @('192.168.70.31','192.168.70.32','192.168.70.33','192.168.70.34','192.168.70.35','192.168.70.36')
 
       # 1. Mount the shared NFS repo on all 6 nodes (idempotent fstab).
+      # Mount the NFSv4 pseudo-root ':/' -- the analytics export is fsid=0 for the
+      # analytics client set (portainer's fsid=0 disables knfsd auto pseudo-fs
+      # server-wide, so the real-path mount fails ENOENT). Same as the CH backup
+      # overlay (handbook §3.x).
       $mountTmpl = @'
 set -euo pipefail
 sudo mkdir -p __MOUNT__
 if ! grep -qF '__MOUNT__' /etc/fstab; then
-  echo '__SERVER__:__EXPORT__  __MOUNT__  nfs4  vers=4.2,rw,hard,_netdev,timeo=600,retrans=2  0  0' | sudo tee -a /etc/fstab > /dev/null
+  echo '__SERVER__:/  __MOUNT__  nfs4  vers=4.2,rw,hard,_netdev,timeo=600,retrans=2  0  0' | sudo tee -a /etc/fstab > /dev/null
 fi
-mountpoint -q __MOUNT__ || sudo mount __MOUNT__ || sudo mount -t nfs4 -o vers=4.2,rw,hard,_netdev __SERVER__:__EXPORT__ __MOUNT__
+mountpoint -q __MOUNT__ || sudo mount __MOUNT__ || sudo mount -t nfs4 -o vers=4.2,rw,hard,_netdev __SERVER__:/ __MOUNT__
 mountpoint -q __MOUNT__ || { echo "ERROR: __MOUNT__ not mounted" >&2; exit 1; }
 sudo mkdir -p __MOUNT__/starrocks
 sudo chown starrocks:starrocks __MOUNT__/starrocks
@@ -72,7 +76,7 @@ set -euo pipefail
 VADDR=$(grep -oP 'address\s*=\s*"\K[^"]+' /etc/vault-agent/00-base.hcl | head -1)
 export VAULT_ADDR="$VADDR" VAULT_CACERT=/etc/vault-agent/ca-bundle.crt VAULT_TOKEN=$(sudo cat /var/run/nexus-vault-agent/token)
 ROOT_PW=$(/usr/local/bin/vault kv get -field=password __ROOT_KV__)
-RP() { mysql -h 127.0.0.1 -P 9030 -u root -p"$ROOT_PW" "$@"; }
+RP() { mysql --skip-ssl -h 127.0.0.1 -P 9030 -u root -p"$ROOT_PW" "$@"; }
 
 # Broker-less filesystem repository on the shared NFS mount (see overlay header
 # caveat). If StarRocks rejects file:// here, this is the documented ratification

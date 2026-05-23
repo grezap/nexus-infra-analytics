@@ -32,20 +32,20 @@ variable "iso_checksum" {
 
 variable "starrocks_version" {
   type        = string
-  default     = "3.3.5"
-  description = "StarRocks release version (kept in lockstep with the FE template). Exact version + sha recorded at ratification."
+  default     = "3.5.17"
+  description = "StarRocks release version (kept in lockstep with the FE template). Latest 3.5 stable-line patch. Releases are OS-split: StarRocks-<ver>-ubuntu-amd64.tar.gz (the old no-suffix name 403s)."
 }
 
 variable "starrocks_download_url" {
   type        = string
-  default     = "https://releases.starrocks.io/starrocks/StarRocks-3.3.5.tar.gz"
-  description = "StarRocks release tarball URL (contains fe/ + be/). MUST match starrocks_version. Override to a local mirror if needed."
+  default     = "https://releases.starrocks.io/starrocks/StarRocks-3.5.17-ubuntu-amd64.tar.gz"
+  description = "StarRocks release binary tarball URL (contains fe/ + be/). MUST match starrocks_version. Cached at H:/VMS/ISO/StarRocks-3.5.17-ubuntu-amd64.tar.gz (md5 954072ebfcbf89bf477a32e872d30baf). Discover current URLs via https://download.starrocks.io/en-US/download/releases."
 }
 
 variable "jdk_package" {
   type        = string
-  default     = "openjdk-17-jre-headless"
-  description = "JDK package present on the BE node (BE is C++ but its tooling/agent expects Java available). Installed from Debian apt by the analytics_starrocks_be role."
+  default     = "openjdk-21-jre-headless"
+  description = "JDK package present on the BE node (BE is C++ but its embedded JVM / lake-format readers + Java UDFs expect Java). Debian 13 has no openjdk-17 (only 21 + 25); 21 satisfies StarRocks 3.5's 'JDK 17 or later'. JAVA_HOME = /usr/lib/jvm/java-21-openjdk-amd64."
 }
 
 variable "cpus" {

@@ -16,7 +16,7 @@ StartLimitIntervalSec=600
 Type=simple
 User={{ analytics_sr_user }}
 Group={{ analytics_sr_group }}
-Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+Environment=JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 EnvironmentFile=-{{ analytics_sr_identity_dir }}/node-identity.env
 # Foreground (start_be.sh without --daemon) so systemd supervises the BE directly.
 ExecStart={{ analytics_sr_home }}/be/bin/start_be.sh

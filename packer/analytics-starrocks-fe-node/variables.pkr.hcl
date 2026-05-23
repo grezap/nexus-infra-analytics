@@ -32,20 +32,20 @@ variable "iso_checksum" {
 
 variable "starrocks_version" {
   type        = string
-  default     = "3.3.5"
-  description = "StarRocks release version (FE + BE kept in lockstep across the two templates). Default a 3.3 LTS-line release. The exact version + tarball sha is recorded in docs/verification/0.G.6-starrocks.md at ratification; override if the default patch is unavailable at build time."
+  default     = "3.5.17"
+  description = "StarRocks release version (FE + BE kept in lockstep across the two templates). Default the latest 3.5 stable-line patch. NOTE: releases are now OS-split -- the tarball is StarRocks-<ver>-ubuntu-amd64.tar.gz (Debian uses the ubuntu build); the old no-suffix StarRocks-<ver>.tar.gz 404/403s. The current per-line patches are listed by the portal API https://download.starrocks.io/en-US/download/releases (md5 in each entry)."
 }
 
 variable "starrocks_download_url" {
   type        = string
-  default     = "https://releases.starrocks.io/starrocks/StarRocks-3.3.5.tar.gz"
-  description = "StarRocks release tarball URL (contains fe/ + be/). MUST match starrocks_version. Override to a local mirror (H:/VMS/ISO/ or an internal cache) if releases.starrocks.io is slow/unreachable at build time."
+  default     = "https://releases.starrocks.io/starrocks/StarRocks-3.5.17-ubuntu-amd64.tar.gz"
+  description = "StarRocks release binary tarball URL (contains fe/ + be/ + apache_hdfs_broker/). MUST match starrocks_version. A verified copy is cached at H:/VMS/ISO/StarRocks-3.5.17-ubuntu-amd64.tar.gz (md5 954072ebfcbf89bf477a32e872d30baf). releases.starrocks.io serves the LISTED versions only (3.3.5 was superseded by 3.3.22); discover current URLs via the portal API https://download.starrocks.io/en-US/download/releases."
 }
 
 variable "jdk_package" {
   type        = string
-  default     = "openjdk-17-jre-headless"
-  description = "JDK package the FE runs on (StarRocks FE requires Java 11+; 17 is current + supported). Installed from Debian apt by the analytics_starrocks_fe role."
+  default     = "openjdk-21-jre-headless"
+  description = "JDK package the FE runs on. StarRocks 3.5 requires 'JDK 17 or later' (3.5.0 dropped version-specific JVM configs). Debian 13/trixie does NOT ship openjdk-17 -- only 21 + 25 -- so we use openjdk-21-jre-headless (>=17, satisfies the requirement). JAVA_HOME = /usr/lib/jvm/java-21-openjdk-amd64."
 }
 
 variable "cpus" {

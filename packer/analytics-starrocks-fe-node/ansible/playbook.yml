@@ -11,9 +11,9 @@
 
   vars:
     target_user: "{{ target_user | default('nexusadmin') }}"
-    analytics_starrocks_version: "{{ analytics_starrocks_version | default('3.3.5') }}"
-    analytics_starrocks_download_url: "{{ analytics_starrocks_download_url | default('https://releases.starrocks.io/starrocks/StarRocks-3.3.5.tar.gz') }}"
-    analytics_jdk_package: "{{ analytics_jdk_package | default('openjdk-17-jre-headless') }}"
+    analytics_starrocks_version: "{{ analytics_starrocks_version | default('3.5.17') }}"
+    analytics_starrocks_download_url: "{{ analytics_starrocks_download_url | default('https://releases.starrocks.io/starrocks/StarRocks-3.5.17-ubuntu-amd64.tar.gz') }}"
+    analytics_jdk_package: "{{ analytics_jdk_package | default('openjdk-21-jre-headless') }}"
 
   roles:
     - nexus_identity

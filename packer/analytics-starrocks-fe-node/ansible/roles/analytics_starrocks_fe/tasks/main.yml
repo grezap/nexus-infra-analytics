@@ -32,9 +32,9 @@
 - name: Download StarRocks release tarball
   ansible.builtin.get_url:
     url: "{{ analytics_starrocks_download_url }}"
-    dest: "/tmp/starrocks-{{ analytics_starrocks_version }}.tar.gz"
+    dest: "/var/tmp/starrocks-{{ analytics_starrocks_version }}.tar.gz"
     mode: "0644"
-    timeout: 120
+    timeout: 1800  # ~2.2 GB binary tarball; 120s was far too short
 
 - name: Create install root
   ansible.builtin.file:
@@ -46,7 +46,7 @@
 
 - name: Unpack StarRocks (strip the top-level StarRocks-<ver> dir)
   ansible.builtin.unarchive:
-    src: "/tmp/starrocks-{{ analytics_starrocks_version }}.tar.gz"
+    src: "/var/tmp/starrocks-{{ analytics_starrocks_version }}.tar.gz"
     dest: "{{ analytics_sr_home }}"
     remote_src: true
     extra_opts: ["--strip-components=1"]
@@ -56,7 +56,7 @@
 
 - name: Remove the tarball
   ansible.builtin.file:
-    path: "/tmp/starrocks-{{ analytics_starrocks_version }}.tar.gz"
+    path: "/var/tmp/starrocks-{{ analytics_starrocks_version }}.tar.gz"
     state: absent
 
 # ─── Per-node dirs ────────────────────────────────────────────────────────

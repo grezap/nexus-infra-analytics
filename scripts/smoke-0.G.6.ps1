@@ -68,7 +68,7 @@ function Invoke-RemoteCommand {
 
 # Read the StarRocks root password on the FE leader (via the agent token) once.
 # Returns a mysql command prefix that authenticates as root. Never prints the pw.
-$mysqlRoot = "mysql -h 127.0.0.1 -P 9030 -u root"
+$mysqlRoot = "mysql --skip-ssl -h 127.0.0.1 -P 9030 -u root"
 function Get-RootMysql {
     $cmd = @'
 VADDR=$(grep -oP 'address\s*=\s*"\K[^"]+' /etc/vault-agent/00-base.hcl | head -1)
@@ -76,7 +76,7 @@ export VAULT_ADDR="$VADDR" VAULT_CACERT=/etc/vault-agent/ca-bundle.crt VAULT_TOK
 /usr/local/bin/vault kv get -field=password nexus/analytics/starrocks/root-password
 '@
     $pw = (ssh @sshOpts "$user@$leaderIp" "$($cmd -replace "`r`n","`n")" 2>&1 | Out-String).Trim()
-    if ($pw) { return "mysql -h 127.0.0.1 -P 9030 -u root -p$pw" }
+    if ($pw) { return "mysql --skip-ssl -h 127.0.0.1 -P 9030 -u root -p$pw" }
     return $mysqlRoot
 }
 
@@ -221,7 +221,7 @@ if ($IncludeChaos) {
     Invoke-RemoteCommand -Ip $leaderIp -Command 'sudo systemctl stop nexus-starrocks-fe.service' | Out-Null
     Start-Sleep -Seconds 20
     Test-Check -Description "a Follower is elected LEADER after the leader loss" -Probe {
-        $rp2 = "mysql -h 127.0.0.1 -P 9030 -u root" # a follower; query may need pw, best-effort
+        $rp2 = "mysql --skip-ssl -h 127.0.0.1 -P 9030 -u root" # a follower; query may need pw, best-effort
         $show = Invoke-RemoteCommand -Ip $feIps[1] -Command "$RP -N -e 'SHOW FRONTENDS' 2>/dev/null"
         ([regex]::Matches($show, '(?i)\bLEADER\b')).Count -ge 1
     } | Out-Null

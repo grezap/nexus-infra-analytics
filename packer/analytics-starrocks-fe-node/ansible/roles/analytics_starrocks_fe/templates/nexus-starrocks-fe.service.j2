@@ -17,10 +17,9 @@ StartLimitIntervalSec=600
 Type=simple
 User={{ analytics_sr_user }}
 Group={{ analytics_sr_group }}
-# StarRocks start_fe.sh requires JAVA_HOME. Debian openjdk-17-jre-headless
-# installs here; if the JDK path differs at ratification, fix this Environment=
-# (chronicled in handbook §3.x).
-Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+# StarRocks start_fe.sh requires JAVA_HOME. Debian 13 openjdk-21-jre-headless
+# installs here (deb13 has no openjdk-17; 21 satisfies StarRocks 3.5's "JDK 17+").
+Environment=JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 EnvironmentFile=-{{ analytics_sr_identity_dir }}/node-identity.env
 # Foreground (no --daemon) so systemd supervises the FE directly.
 ExecStart={{ analytics_sr_home }}/fe/bin/start_fe.sh

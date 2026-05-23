@@ -63,14 +63,14 @@ echo BECONF_OK
       # Register each BE on the FE leader.
       foreach ($be in $bes) {
         Write-Host "[sr-be-join] ALTER SYSTEM ADD BACKEND $($be.b10):9050"
-        ssh @sshOpts "$sshUser@$leaderIp" "mysql -h 127.0.0.1 -P 9030 -u root -e `"ALTER SYSTEM ADD BACKEND '$($be.b10):9050'`" 2>&1 || true" 2>&1 | Out-String | Write-Host
+        ssh @sshOpts "$sshUser@$leaderIp" "mysql --skip-ssl -h 127.0.0.1 -P 9030 -u root -e `"ALTER SYSTEM ADD BACKEND '$($be.b10):9050'`" 2>&1 || true" 2>&1 | Out-String | Write-Host
       }
 
       # Verify 3 BE alive.
       Write-Host "[sr-be-join] verifying 3 BE alive..."
       $deadline = (Get-Date).AddMinutes($bootTimeout); $ok = $false
       while ((Get-Date) -lt $deadline) {
-        $rows = (ssh @sshOpts "$sshUser@$leaderIp" "mysql -h 127.0.0.1 -P 9030 -u root -N -e 'SHOW BACKENDS' 2>/dev/null" 2>&1 | Out-String)
+        $rows = (ssh @sshOpts "$sshUser@$leaderIp" "mysql --skip-ssl -h 127.0.0.1 -P 9030 -u root -N -e 'SHOW BACKENDS' 2>/dev/null" 2>&1 | Out-String)
         $alive = ([regex]::Matches($rows, '(?i)\btrue\b')).Count
         $beCount = (($rows -split "`n") | Where-Object { $_ -match '\S' }).Count
         Write-Host "[sr-be-join]   BE rows=$beCount alive(true)~$alive"

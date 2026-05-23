@@ -60,7 +60,10 @@ if ! grep -q '^priority_networks' "$CONF"; then
 fi
 echo FECONF_OK
 '@
-      foreach ($feip in @($leaderIp, ($followers | ForEach-Object { $_.ip }))) {
+      # NB: @($a, ($pipe)) does NOT flatten the inner array in PowerShell -- the
+      # 2nd element becomes the whole follower-IP array, so `ssh user@<array>`
+      # gets a space-joined host. Use `+` concatenation, which flattens.
+      foreach ($feip in (@($leaderIp) + @($followers | ForEach-Object { $_.ip }))) {
         $o = ($feConfTmpl -replace "`r`n","`n") | ssh @sshOpts "$sshUser@$feip" "tr -d '\r' | bash -s" 2>&1 | Out-String
         if ($o -notmatch 'FECONF_OK') { Write-Host $o.Trim(); throw "[sr-fe-bootstrap] fe.conf render failed on $feip" }
       }
@@ -70,7 +73,7 @@ echo FECONF_OK
       ssh @sshOpts "$sshUser@$leaderIp" "sudo systemctl daemon-reload; sudo systemctl enable --now nexus-starrocks-fe.service" 2>&1 | Out-String | Write-Host
       $deadline = (Get-Date).AddMinutes($bootTimeout); $ready = $false
       while ((Get-Date) -lt $deadline) {
-        $q = (ssh @sshOpts "$sshUser@$leaderIp" "mysql -h 127.0.0.1 -P 9030 -u root -N -e 'SHOW FRONTENDS' 2>/dev/null | wc -l" 2>&1 | Out-String).Trim()
+        $q = (ssh @sshOpts "$sshUser@$leaderIp" "mysql --skip-ssl -h 127.0.0.1 -P 9030 -u root -N -e 'SHOW FRONTENDS' 2>/dev/null | wc -l" 2>&1 | Out-String).Trim()
         if ($q -match '^[1-9]') { $ready = $true; break }
         Start-Sleep -Seconds 8
       }
@@ -84,11 +87,11 @@ echo FECONF_OK
       foreach ($f in $followers) {
         Write-Host "[sr-fe-bootstrap] joining follower $($f.host) ($($f.b10))"
         # 2a. Register on the leader.
-        ssh @sshOpts "$sshUser@$leaderIp" "mysql -h 127.0.0.1 -P 9030 -u root -e `"ALTER SYSTEM ADD FOLLOWER '$($f.b10):9010'`"" 2>&1 | Out-String | Write-Host
+        ssh @sshOpts "$sshUser@$leaderIp" "mysql --skip-ssl -h 127.0.0.1 -P 9030 -u root -e `"ALTER SYSTEM ADD FOLLOWER '$($f.b10):9010'`"" 2>&1 | Out-String | Write-Host
         # 2b. First-start with --helper (one-shot join; persists BDB-JE meta), then systemd handover.
         $joinTmpl = @'
 set -euo pipefail
-export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 if [ ! -f /opt/starrocks/fe/meta/image/ROLE ] && [ ! -d /opt/starrocks/fe/meta/bdb ]; then
   sudo -u starrocks JAVA_HOME="$JAVA_HOME" /opt/starrocks/fe/bin/start_fe.sh --helper __LEADER_B10__:9010 --daemon
   sleep 15
@@ -109,7 +112,7 @@ echo JOIN_OK
       Write-Host "[sr-fe-bootstrap] verifying FE quorum (1 LEADER + 2 FOLLOWER)"
       $deadline = (Get-Date).AddMinutes(5); $ok = $false
       while ((Get-Date) -lt $deadline) {
-        $rows = (ssh @sshOpts "$sshUser@$leaderIp" "mysql -h 127.0.0.1 -P 9030 -u root -N -e 'SHOW FRONTENDS' 2>/dev/null" 2>&1 | Out-String)
+        $rows = (ssh @sshOpts "$sshUser@$leaderIp" "mysql --skip-ssl -h 127.0.0.1 -P 9030 -u root -N -e 'SHOW FRONTENDS' 2>/dev/null" 2>&1 | Out-String)
         $leaders   = ([regex]::Matches($rows, '(?i)\btrue\b.*\bLEADER\b')).Count + ([regex]::Matches($rows, '(?im)LEADER.*\btrue\b')).Count
         $aliveTrue = ([regex]::Matches($rows, '(?i)\btrue\b')).Count
         $feCount   = (($rows -split "`n") | Where-Object { $_ -match '\S' }).Count
