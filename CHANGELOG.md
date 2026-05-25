@@ -8,7 +8,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Phase 0.G analytics tier SEALED — ClickHouse (0.G.5) + StarRocks (0.G.6) live-ratified + cold-rebuild-proven
 
-Both analytics clusters are live on the 66-VM VMware lab, each rebuilt from zero (destroy → `packer build` → from-zero `apply` → smoke) with **no toy databases** — sharding AND replication proven in the smoke gates.
+Both analytics clusters are live on the NexusPlatform VMware lab (88 VMs built through Phase 0.L.4), each rebuilt from zero (destroy → `packer build` → from-zero `apply` → smoke) with **no toy databases** — sharding AND replication proven in the smoke gates.
 
 - **0.G.5 ClickHouse — SEALED.** 3 ClickHouse Keeper (RAFT quorum, NOT ZooKeeper) + 3 shards × 2 replicas on per-host Vault PKI mTLS. `nexus.events` Distributed over ReplicatedMergeTree: sharded ×3 AND replicated ×2 (Distributed `count()` = 600, all shards converged); SQL RBAC; round-robin DNS (`clickhouse.nexus.lab` → all 6, no VIP); NFS backup repo with a cross-node BACKUP→RESTORE round-trip. **`smoke-0.G.5.ps1` 129/129 GREEN**, cold-rebuild proven.
 - **0.G.6 StarRocks — SEALED (shared-nothing).** 3 FE (1 leader + 2 followers, BDB-JE quorum, `--helper` join) + 3 BE on **JDK 21**, StarRocks **3.5.17**. `nexus.events` `DISTRIBUTED BY HASH BUCKETS 6` × `replication_num=3` — sharded across 3 BE AND replicated ×3; SQL RBAC; round-robin DNS (`starrocks-fe.nexus.lab`); broker-less NFS `file://` backup repo. **`smoke-0.G.6.ps1` 73/73 GREEN**, cold-rebuild proven. The CN / shared-data (storage-compute-separation) tier is deferred to Phase 0.L (object storage).

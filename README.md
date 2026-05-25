@@ -7,7 +7,7 @@
 [![Phase](https://img.shields.io/badge/phase-0.G.5%20ClickHouse%20%2B%200.G.6%20StarRocks%20SEALED-brightgreen)](./CHANGELOG.md)
 [![Release](https://img.shields.io/badge/release-v0.1.0-blue)](./CHANGELOG.md)
 
-Analytics data tier of the **NexusPlatform 66-VM lab** — ClickHouse (Keeper quorum + sharded/replicated MergeTree) · StarRocks (FE quorum + BE tablet sharding). 15 VMs on tier `04-analytics`.
+Analytics data tier of the **NexusPlatform lab** (88 VMs built through Phase 0.L.4) — ClickHouse (Keeper quorum + sharded/replicated MergeTree) · StarRocks (FE quorum + BE tablet sharding). 15 VMs on tier `04-analytics`.
 
 > **Canon:** This repo implements [Phase 0.G.5 + 0.G.6](https://github.com/grezap/nexus-platform-plan/blob/main/MASTER-PLAN.md) of the NexusPlatform blueprint. VM inventory is [`nexus-platform-plan/docs/infra/vms.yaml`](https://github.com/grezap/nexus-platform-plan/blob/main/docs/infra/vms.yaml) (cluster `clickhouse` + cluster `starrocks`). Architectural source of truth is [`nexus-platform-plan`](https://github.com/grezap/nexus-platform-plan). Tool glossary: [`docs/glossary.md`](https://github.com/grezap/nexus-platform-plan/blob/main/docs/glossary.md).
 >
