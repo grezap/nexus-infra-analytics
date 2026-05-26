@@ -1,0 +1,11 @@
+---
+# analytics_starrocks_be role defaults
+analytics_starrocks_version: "3.5.17"
+analytics_starrocks_download_url: "https://releases.starrocks.io/starrocks/StarRocks-3.5.17-ubuntu-amd64.tar.gz"
+analytics_jdk_package: "openjdk-21-jre-headless"
+
+analytics_sr_user: starrocks
+analytics_sr_group: starrocks
+analytics_sr_home: /opt/starrocks
+analytics_sr_identity_dir: /etc/nexus-starrocks
+analytics_backup_mount: /var/backups/analytics

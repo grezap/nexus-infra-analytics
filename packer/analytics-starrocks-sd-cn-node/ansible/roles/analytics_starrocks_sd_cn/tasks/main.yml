@@ -1,0 +1,107 @@
+---
+# analytics_starrocks_sd_cn role -- install JDK + the StarRocks BE package
+# from the release tarball (which ships the CN binary at be/bin/start_cn.sh
+# alongside start_be.sh). The nexus-starrocks-sd-cn.service systemd unit is
+# delivered DISABLED -- the Terraform sd-cn-join overlay renders cn.conf with
+# the per-host priority_networks + storage_root_path, joins the CN via
+# ALTER SYSTEM ADD COMPUTE NODE on the FE leader, then enables it.
+
+# ─── JDK (CN tooling expects Java available) ─────────────────────────────
+- name: Install JDK for StarRocks CN tooling
+  ansible.builtin.apt:
+    name: "{{ analytics_jdk_package }}"
+    state: present
+    update_cache: true
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+# ─── StarRocks system account ────────────────────────────────────────────
+- name: Create starrocks group
+  ansible.builtin.group:
+    name: "{{ analytics_sr_group }}"
+    system: true
+
+- name: Create starrocks user
+  ansible.builtin.user:
+    name: "{{ analytics_sr_user }}"
+    group: "{{ analytics_sr_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ analytics_sr_home }}"
+    create_home: false
+
+# ─── Download + unpack the StarRocks release tarball ─────────────────────
+- name: Download StarRocks release tarball
+  ansible.builtin.get_url:
+    url: "{{ analytics_starrocks_download_url }}"
+    dest: "/var/tmp/starrocks-{{ analytics_starrocks_version }}.tar.gz"
+    mode: "0644"
+    timeout: 1800  # ~2.2 GB binary tarball; 120s was far too short
+
+- name: Create install root
+  ansible.builtin.file:
+    path: "{{ analytics_sr_home }}"
+    state: directory
+    owner: "{{ analytics_sr_user }}"
+    group: "{{ analytics_sr_group }}"
+    mode: "0755"
+
+- name: Unpack StarRocks (strip the top-level StarRocks-<ver> dir)
+  ansible.builtin.unarchive:
+    src: "/var/tmp/starrocks-{{ analytics_starrocks_version }}.tar.gz"
+    dest: "{{ analytics_sr_home }}"
+    remote_src: true
+    extra_opts: ["--strip-components=1"]
+    owner: "{{ analytics_sr_user }}"
+    group: "{{ analytics_sr_group }}"
+    creates: "{{ analytics_sr_home }}/be/bin/start_cn.sh"
+
+- name: Remove the tarball
+  ansible.builtin.file:
+    path: "/var/tmp/starrocks-{{ analytics_starrocks_version }}.tar.gz"
+    state: absent
+
+# ─── Per-node dirs ────────────────────────────────────────────────────────
+# CN local datacache lives at /opt/starrocks/be/storage (cn.conf's
+# storage_root_path); the durable data lives in the MinIO storage volume so
+# this dir holds only block-cache + spill. No NFS backup mount on sd nodes
+# (backups are S3 -> S3 via the storage volume).
+- name: Create per-node CN directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ analytics_sr_home }}/be/storage", owner: "{{ analytics_sr_user }}", group: "{{ analytics_sr_group }}", mode: "0750" }
+    - { path: "{{ analytics_sr_home }}/be/conf/tls", owner: "{{ analytics_sr_user }}", group: "{{ analytics_sr_group }}", mode: "0750" }
+    - { path: "{{ analytics_sr_identity_dir }}", owner: root, group: "{{ analytics_sr_group }}", mode: "0750" }
+
+# ─── nexus-starrocks-sd-cn.service (DISABLED at bake) ────────────────────
+- name: Install nexus-starrocks-sd-cn.service systemd unit
+  ansible.builtin.template:
+    src: nexus-starrocks-sd-cn.service.j2
+    dest: /etc/systemd/system/nexus-starrocks-sd-cn.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Ensure nexus-starrocks-sd-cn.service is disabled at bake
+  ansible.builtin.systemd:
+    name: nexus-starrocks-sd-cn.service
+    enabled: false
+    daemon_reload: true
+
+# ─── Verify ──────────────────────────────────────────────────────────────
+- name: Verify CN binary + default cn.conf present
+  ansible.builtin.command: "{{ item }}"
+  changed_when: false
+  loop:
+    - "test -x {{ analytics_sr_home }}/be/bin/start_cn.sh"
+    - "test -f {{ analytics_sr_home }}/be/conf/cn.conf"
+
+- name: Show StarRocks CN install summary
+  ansible.builtin.debug:
+    msg: "StarRocks CN: {{ analytics_sr_home }}/be (version {{ analytics_starrocks_version }}; started via start_cn.sh, cn.conf)"

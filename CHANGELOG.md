@@ -4,6 +4,38 @@ All notable changes to `nexus-infra-analytics` are documented in this file. Form
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.2.0] - 2026-05-26 — pending tag
+
+### Phase 0.L.5 SEALED — StarRocks shared-data tier live-ratified + cold-rebuild-proven (ADR-0037)
+
+Second StarRocks cluster added to the repo (parallel to the sealed shared-nothing 0.G.6 one), live + cold-rebuild-proven on the per-engine + per-cluster-state canon. `smoke-0.L.5.ps1` **69/69 GREEN** with chaos default-on — CN-loss tolerance (kill a CN → query still returns 60 rows from shared MinIO storage; the headline shared-data HA property) + FE-leader re-election proven on every run. 5 apply-time transients diagnosed + fixed in source (handbook §3.C):
+
+- D1 — MinIO agent KV policy gap for new tenants (v1 → v2 adds read on `nexus/data/analytics/starrocks-sd/s3-*`).
+- D2 — `VMnetDHCP` Windows service was stopped on the build host; build VMs hung at install. Operator recovery: elevated `Start-Service VMnetDHCP`.
+- D3 — PowerShell backtick line-continuation + `.Method()` on next line = ParserError. Fix: inline the `.Replace()` chain on one line.
+- D4 — `SHOW STORAGE VOLUMES` returns name-only (no `IsDefault` column); use `DESC STORAGE VOLUME <name>` + `awk` on the data row.
+- D5 — StarRocks shared-data first cloud-native `CREATE TABLE` against a fresh storage volume hits `tablet_create_timeout_second=10s` (S3 PUT chain takes longer than local). Fix: `ADMIN SET FRONTEND CONFIG ("tablet_create_timeout_second" = "60")` before CREATE TABLE.
+
+### Added — Phase 0.L.5 — StarRocks shared-data tier scaffolded (2026-05-26, ADR-0037)
+
+Adds the **second StarRocks cluster** to the repo (parallel to the sealed shared-nothing 0.G.6 one). Storage-compute-separation deployment: 3 FE BDB-JE quorum + 2 stateless **Compute Nodes**; internal cloud-native tables in a MinIO **storage volume** (`s3://starrocks/`) backed by the 0.L.1 4-node EC cluster. Tier 04-analytics now hosts 20 VMs (15 → 20).
+
+**Two new per-engine Packer templates** (full isolation from the sealed cluster's templates per the per-engine-template canon): `packer/analytics-starrocks-sd-fe-node/` (StarRocks FE 3.5.17 + JDK 21; `nexus-starrocks-sd-fe.service` DISABLED) + `packer/analytics-starrocks-sd-cn-node/` (StarRocks BE package — same tarball — started via `be/bin/start_cn.sh` with `cn.conf`; `nexus-starrocks-sd-cn.service` DISABLED). The shared `_shared/analytics_firstboot` script gets 5 additional IP→role cases (`.37`/`.38`/`.39` → `starrocks-sd-fe`; `.30`/`.40` → `starrocks-sd-cn`; cluster `starrocks-sd`).
+
+**Per-cluster Terraform env** `terraform/envs/analytics-starrocks-sd/` (5 `module.vm`: 3 FE + 2 CN; overlays: nftables-backplane, vault-agents [sidecars `vault-agent-analytics-starrocks-sd-<host>.json`], tls [PKI role `starrocks-sd-server`, PKCS#8, SAN `starrocks-sd-fe.nexus.lab`], **sd-fe-bootstrap** [fe.conf with `run_mode=shared_data` + `cloud_native_meta_port=6090` + priority_networks; leader-first + 2 followers via `ALTER SYSTEM ADD FOLLOWER` + `--helper`], **sd-cn-join** [cn.conf with priority_networks + storage_root_path; `ALTER SYSTEM ADD COMPUTE NODE`], **sd-storage-volume** [import Vault CA into FE JDK cacerts + CN system trust store; `CREATE STORAGE VOLUME nexus_minio_starrocks TYPE = S3 ...` + `SET AS DEFAULT STORAGE VOLUME`], **sd-schema-bootstrap** [cloud-native `nexus.events` in the default storage volume + RBAC + 60-row write/read round-trip + S3-side object proof]). Cluster S3 credentials read on-node from Vault KV via the per-host agent token; never embedded in `fe.conf`.
+
+**Operator surface**: `scripts/analytics-starrocks-sd.ps1` + `scripts/smoke-0.L.5.ps1` (**runs CN-loss chaos by default** — kill 1 CN, prove the query still returns 60 rows from shared MinIO storage; plus FE-leader re-election; `-SkipChaos` to suppress).
+
+**Cross-tier (nexus-infra-vmware)**: `foundation` reservations overlay bumped v2 → v3 (adds 5 SR-SD dhcp-host `:A5`-`:A9` → `.37`/`.38`/`.39`/`.30`/`.40`) + analytics DNS overlay bumped v2 → v3 (adds round-robin `starrocks-sd-fe.nexus.lab` → 3 FE); `security` adds the `starrocks-sd-server` PKI role + 5 narrow agent policies + 5 AppRoles/sidecars + 4 KV creds at `nexus/analytics/starrocks-sd/{root-password,app-password,s3-access-key,s3-secret-key}`. The MinIO agent policy is bumped v1 → v2 (adds KV read on `nexus/data/analytics/starrocks-sd/s3-*` so minio-1 can provision the tenant). **Cross-tier (nexus-infra-lakehouse)**: new `role-overlay-minio-starrocks-tenant.tf` in `terraform/envs/lakehouse-minio/` provisions the dedicated MinIO tenant (bucket `starrocks` + service account `nexus-starrocks-app` + scoped `starrocks-tenant` policy; cross-bucket-deny proven via a `mc cp` to `s3://warehouse` that must fail).
+
+**Canon**: ADR-0037 (amends ADR-0030); MASTER-PLAN 0.L row updated; vms.yaml `vm_count: 88 → 93` (cluster `starrocks-sd` added); network.md DNS + MAC table extended; glossary adds "Shared-data mode", "Compute Node", "Storage volume" entries; handbook §1.C walkthrough + §2 status row.
+
+**Pending**: live ratification + cold-rebuild proof; §3.C transient chronology; `v0.2.0` tag.
+
+---
+
 ## [0.1.0] - 2026-05-23
 
 ### Phase 0.G analytics tier SEALED — ClickHouse (0.G.5) + StarRocks (0.G.6) live-ratified + cold-rebuild-proven

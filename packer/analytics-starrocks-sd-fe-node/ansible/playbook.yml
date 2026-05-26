@@ -1,0 +1,24 @@
+---
+# analytics-starrocks-sd-fe-node -- Ansible playbook (local, Packer ansible-local).
+# Per-engine template: installs the JDK + StarRocks FE (shared-data variant).
+# The CN lives in the sibling analytics-starrocks-sd-cn-node template.
+
+- name: Configure analytics-starrocks-sd-fe-node template (Phase 0.L.5, ADR-0037)
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+
+  vars:
+    target_user: "{{ target_user | default('nexusadmin') }}"
+    analytics_starrocks_version: "{{ analytics_starrocks_version | default('3.5.17') }}"
+    analytics_starrocks_download_url: "{{ analytics_starrocks_download_url | default('https://releases.starrocks.io/starrocks/StarRocks-3.5.17-ubuntu-amd64.tar.gz') }}"
+    analytics_jdk_package: "{{ analytics_jdk_package | default('openjdk-21-jre-headless') }}"
+
+  roles:
+    - nexus_identity
+    - nexus_network
+    - nexus_firewall
+    - nexus_observability
+    - analytics_firstboot
+    - analytics_starrocks_sd_fe

@@ -1,0 +1,33 @@
+[Unit]
+Description=Nexus StarRocks FE (Frontend -- metadata + query coordination)
+Documentation=https://docs.starrocks.io/docs/deployment/
+After=network-online.target analytics-node-firstboot.service
+Wants=network-online.target
+Requires=analytics-node-firstboot.service
+# Delivered DISABLED by the analytics_starrocks_fe Packer role.
+# role-overlay-starrocks-fe-bootstrap.tf renders {{ analytics_sr_home }}/fe/conf/fe.conf
+# (per-host priority_networks + meta_dir + ports), bootstraps the leader / joins
+# followers (ALTER SYSTEM ADD FOLLOWER + first start --helper), then enables this
+# unit. Subsequent restarts read the persisted BDB-JE meta (no --helper needed).
+ConditionPathExists={{ analytics_sr_home }}/fe/conf/fe.conf
+StartLimitBurst=15
+StartLimitIntervalSec=600
+
+[Service]
+Type=simple
+User={{ analytics_sr_user }}
+Group={{ analytics_sr_group }}
+# StarRocks start_fe.sh requires JAVA_HOME. Debian 13 openjdk-21-jre-headless
+# installs here (deb13 has no openjdk-17; 21 satisfies StarRocks 3.5's "JDK 17+").
+Environment=JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+EnvironmentFile=-{{ analytics_sr_identity_dir }}/node-identity.env
+# Foreground (no --daemon) so systemd supervises the FE directly.
+ExecStart={{ analytics_sr_home }}/fe/bin/start_fe.sh
+Restart=on-failure
+RestartSec=10
+LimitNOFILE=1048576
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

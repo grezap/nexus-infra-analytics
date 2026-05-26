@@ -17,12 +17,14 @@ The EXACT from-zero replay canon for the `04-analytics` tier (per `feedback_hand
 ### §0.2 Other tiers that MUST already be alive
 | Tier | VMs (verify) | Why the analytics tier needs it |
 |---|---|---|
-| **Foundation** | `nexus-gateway` (.70.1) — `ssh nexusadmin@192.168.70.1 'systemctl is-active dnsmasq nfs-server'`; `dc-nexus` (.70.10) | DHCP + DNS (incl. the 15 analytics dhcp-host reservations + round-robin `clickhouse.nexus.lab` host-record) + the `/srv/nfs/analytics-backups` NFS export (the backup repository, ADR-0032) |
-| **Security** | `vault-1/2/3` (.121–.123) + `vault-transit` (.124) — `vault status` on each = unsealed | Vault PKI issues per-host mTLS leaf certs (`clickhouse-server` role); per-node Vault Agent AppRoles render the certs + KV-seeded creds |
+| **Foundation** | `nexus-gateway` (.70.1) — `ssh nexusadmin@192.168.70.1 'systemctl is-active dnsmasq nfs-server'`; `dc-nexus` (.70.10) | DHCP + DNS (incl. the 20 analytics dhcp-host reservations [9 CH + 6 SR-sn + 5 SR-sd] + round-robin host-records `clickhouse.nexus.lab` / `starrocks-fe.nexus.lab` / `starrocks-sd-fe.nexus.lab`) + the `/srv/nfs/analytics-backups` NFS export (CH/SR-sn backups, ADR-0032; SR-sd backups go through the MinIO storage volume) |
+| **Security** | `vault-1/2/3` (.121–.123) + `vault-transit` (.124) — `vault status` on each = unsealed | Vault PKI issues per-host mTLS leaf certs (`clickhouse-server`, `starrocks-server`, **`starrocks-sd-server`**); per-node Vault Agent AppRoles render the certs + KV-seeded creds |
+| **MinIO (0.L.1) — only for the shared-data cluster (0.L.5)** | `minio-1/2/3/4` (.141–.144) — `pwsh -File ../nexus-infra-lakehouse/scripts/smoke-0.L.1.ps1` → 41/41 GREEN | SR-shared-data's internal cloud-native tables live in the MinIO storage volume `nexus_minio_starrocks` → `s3://starrocks/`; the `nexus-starrocks-app` MinIO service account + scoped `starrocks-tenant` policy must already be provisioned by `nexus-infra-lakehouse/terraform/envs/lakehouse-minio/role-overlay-minio-starrocks-tenant.tf`. |
 
 ### §0.3 Cross-repo state this tier reads
-- `nexus-infra-vmware` `envs/foundation` applied: `role-overlay-gateway-analytics-reservations.tf` (dhcp-host + round-robin DNS + NFS export). The 15 analytics MAC→IP reservations (`:8A`–`:98`, see `network.md`).
-- `nexus-infra-vmware` `envs/security` applied: `role-overlay-vault-pki-clickhouse.tf` (PKI role `clickhouse-server`) + 9 per-host AppRole sidecars at `$HOME/.nexus/vault-agent-analytics-clickhouse-<host>.json` + KV sticky-seeds at `nexus/analytics/clickhouse/*`. **The `envs/analytics-clickhouse` plan reads these sidecars via `filesha256()` at plan time — so security MUST be applied first** (hard ordering, not preference).
+- `nexus-infra-vmware` `envs/foundation` applied: `role-overlay-gateway-analytics-reservations.tf` v3 (dhcp-host + round-robin DNS + NFS export). The 20 analytics MAC→IP reservations (`:8A`–`:98` for CH + SR-sn, `:A5`–`:A9` for SR-sd, see `network.md`).
+- `nexus-infra-vmware` `envs/security` applied: PKI roles `clickhouse-server` / `starrocks-server` / `starrocks-sd-server` + per-host AppRole sidecars at `$HOME/.nexus/vault-agent-analytics-{clickhouse,starrocks,starrocks-sd}-<host>.json` + KV sticky-seeds at `nexus/analytics/{clickhouse,starrocks,starrocks-sd}/*`. **The per-cluster TF envs read these sidecars via `filesha256()` at plan time — so security MUST be applied first** (hard ordering, not preference). The MinIO agent policy is **v2** (extends KV reads to `nexus/data/analytics/starrocks-sd/s3-*` so `minio-1` can read the SR-sd S3 creds during the tenant bootstrap).
+- `nexus-infra-lakehouse` `envs/lakehouse-minio` applied: `role-overlay-minio-starrocks-tenant.tf` (only for 0.L.5) — provisions the `starrocks` bucket + `nexus-starrocks-app` user + scoped `starrocks-tenant` policy.
 
 ---
 
@@ -140,6 +142,57 @@ System B demos `demo-0.G.6-starrocks-*.json` in [`nexus-cli/docs/demos/`](https:
 - **Backup repository on NFS**: the broker-less `file://` repository on the shared NFS mount **works** (no Broker needed) — `CREATE REPOSITORY nexus_backups ... file://` registered + `BACKUP SNAPSHOT` issued. Migration to MinIO/S3 is still the 0.L successor (ADR-0032), and is also where the CN/shared-data tier lands.
 - **Internal FE↔BE TLS** (thrift/brpc) is newer in StarRocks; the lab posture trusts the VMnet10 backplane (firewall) for internal traffic; tightening is a documented follow-up.
 
+### §1.C StarRocks shared-data (Phase 0.L.5, ADR-0037)
+
+The second StarRocks cluster — **parallel** to the sealed shared-nothing one above. `run_mode=shared_data`; internal cloud-native tables live in a MinIO storage volume; data plane = stateless CN (any CN serves any query from shared storage).
+
+#### §1.C.0 Prerequisites (which machines must already exist + be alive)
+
+- The 6-VM foundation base (`nexus-gateway` + `dc-nexus` + `vault-1/2/3` + `vault-transit`).
+- The **MinIO 4-node EC cluster** (Phase 0.L.1, `minio-1..4` at `.141`-`.144`) — the storage backend the cluster writes to. Verify with `pwsh -File ../nexus-infra-lakehouse/scripts/smoke-0.L.1.ps1` → 41/41 GREEN.
+- The sealed shared-nothing SR cluster (0.G.6) is NOT a prerequisite — both clusters can run in parallel or one at a time.
+
+#### §1.C.1 Build the Packer templates
+```powershell
+cd packer/analytics-starrocks-sd-fe-node ; packer init . ; packer build -var "iso_url=H:/VMS/ISO/debian-13.5.0-amd64-netinst.iso" .
+cd ../analytics-starrocks-sd-cn-node    ; packer init . ; packer build -var "iso_url=H:/VMS/ISO/debian-13.5.0-amd64-netinst.iso" .
+```
+Output: `H:/VMS/NexusPlatform/_templates/analytics-starrocks-sd-fe-node/` + `.../analytics-starrocks-sd-cn-node/`. Spot-check (CN): `test -x /opt/starrocks/be/bin/start_cn.sh` + `test -f /opt/starrocks/be/conf/cn.conf` (the BE package ships both FE/BE + the CN binary alongside; CN config defaults to `cn.conf`).
+
+#### §1.C.2 Cross-env operator order
+```
+nexus-infra-vmware  envs/foundation       apply   # extends dhcp + adds round-robin DNS starrocks-sd-fe.nexus.lab for .37/.38/.39
+nexus-infra-vmware  envs/security         apply   # starrocks-sd-server PKI role + 5 AppRole sidecars + KV seeds at nexus/analytics/starrocks-sd/* + minio agent policy v2 (adds KV read on the SR S3 creds so minio-1 can provision the tenant)
+nexus-infra-lakehouse  envs/lakehouse-minio apply # role-overlay-minio-starrocks-tenant -- creates the starrocks bucket + nexus-starrocks-app user + scoped starrocks-tenant policy (negative-proof against the warehouse bucket)
+nexus-infra-analytics  envs/analytics-starrocks-sd apply
+```
+
+#### §1.C.3 Apply
+```powershell
+pwsh -File scripts/analytics-starrocks-sd.ps1 apply
+```
+Apply-flow: 5 clones (3 sd FE + 2 sd CN) → firstboot → nftables-backplane → vault-agents → tls (per-host `starrocks-sd-server` PKI, PKCS#8) → **sd-fe-bootstrap** (append `run_mode=shared_data` + `cloud_native_meta_port=6090` + `priority_networks` to fe.conf; start leader; join 2 followers via `ALTER SYSTEM ADD FOLLOWER` + `--helper`; BDB-JE quorum) → **sd-cn-join** (render cn.conf with `priority_networks` + `storage_root_path`; start CN; `ALTER SYSTEM ADD COMPUTE NODE`) → **sd-storage-volume** (import Vault CA into JDK cacerts on FE + system trust store on CN; `CREATE STORAGE VOLUME nexus_minio_starrocks TYPE = S3 LOCATIONS = ('s3://starrocks/') PROPERTIES(...)` with KV-seeded creds; `SET AS DEFAULT STORAGE VOLUME`) → **sd-schema-bootstrap** (cloud-native `nexus.events` in the default storage volume + RBAC + 60-row write/read round-trip + S3-side object proof).
+
+#### §1.C.4 Verify the exit gate
+```powershell
+pwsh -File scripts/analytics-starrocks-sd.ps1 smoke   # smoke-0.L.5.ps1 -> ALL 0.L.5 SMOKE CHECKS PASSED
+```
+The smoke **runs CN-loss chaos by default** (kill 1 CN → query still returns 60 rows from shared MinIO; restart CN; kill FE leader → re-election). Pass `-SkipChaos` to suppress destructive checks. Manual spot-checks on `sr-sd-fe-1`: `SHOW FRONTENDS` = 3 alive; `SHOW COMPUTE NODES` = 2 alive; `SHOW STORAGE VOLUMES` shows `nexus_minio_starrocks` `IsDefault=true`; `sudo grep run_mode /opt/starrocks/fe/conf/fe.conf` shows `shared_data`; `sudo mc ls --recursive nexuslocal/starrocks/` on `minio-1` lists objects.
+
+#### §1.C.5 Iterating (selective ops)
+```powershell
+# Only the FE quorum (no CN yet):
+pwsh -File scripts/analytics-starrocks-sd.ps1 apply -Vars enable_sr_sd_cn_1=false,enable_sr_sd_cn_2=false,enable_sd_cn_join=false,enable_sd_storage_volume=false,enable_sd_schema_bootstrap=false
+# Re-render only the storage-volume overlay (e.g., after rotating the MinIO secret):
+pwsh -File scripts/analytics-starrocks-sd.ps1 apply -Vars enable_sd_schema_bootstrap=false
+```
+
+#### §1.C.6 Tear down
+```powershell
+pwsh -File scripts/analytics-starrocks-sd.ps1 destroy
+```
+Survives: the MinIO `starrocks` bucket + `nexus-starrocks-app` user + `starrocks-tenant` policy (data preservation; the tenant overlay's destroy is a no-op). The KV seeds at `nexus/analytics/starrocks-sd/*` also survive (sticky). To wipe a cold rebuild's S3 footprint completely: `sudo mc rb --force --dangerous nexuslocal/starrocks` on `minio-1`, then `sudo mc mb nexuslocal/starrocks` before the next apply.
+
 ---
 
 ## §2 Phase status table
@@ -148,6 +201,7 @@ System B demos `demo-0.G.6-starrocks-*.json` in [`nexus-cli/docs/demos/`](https:
 |---|---|---|---|
 | 0.G.5 | ClickHouse (3 shards × 2 replicas + 3 Keeper) | **SEALED 2026-05-23** — live-ratified + cold-rebuild-proven | `smoke-0.G.5.ps1` → 129/129 |
 | 0.G.6 | StarRocks (3 FE + 3 BE, shared-nothing) | **SEALED 2026-05-23** — live-ratified + cold-rebuild-proven; CN/shared-data tier deferred to 0.L | `smoke-0.G.6.ps1` → 73/73 |
+| 0.L.5 | StarRocks shared-data (3 FE + 2 CN, MinIO storage volume) | **SEALED 2026-05-26** — live-ratified + cold-rebuild-proven (ADR-0037); 5 apply-time transients fixed in source (handbook §3.C) | `smoke-0.L.5.ps1` → 69/69 (chaos default-on) |
 
 ---
 
@@ -199,3 +253,15 @@ Live-ratified 2026-05-23 (smoke 73/73). Each transient: symptom → diagnosis �
 | — | re-`apply` power_on flake for `sr-be-2`/`sr-be-3` ("Unknown error" / "operation was canceled"). | Same VMware-under-load `vmrun start` flake as CH transient #1 (6 VMs starting at once). | Re-run `apply` (terraform retries the tainted power_ons). |
 | S7 | **(cold-rebuild)** the `nftables-backplane` overlay hung ~20 min then `[sr-nftables sr-fe-leader] SSH + firstboot marker never ready`; the leader VM was **running but unreachable on SSH** (timeout, not refused) — no IP on the service NIC. | VMware-under-load flake on the **primary** NIC at power-on (same class as #1/#9): the leader booted but networkd never brought up a usable `nic0`/`.31`; reconnecting the virtual cable alone didn't make the guest re-acquire its lease. | **Operator recovery**: `vmrun reset <vmx> hard` (power-cycle) → SSH + firstboot marker ready in ~20 s → re-run `apply`. Then FE quorum + BE join + schema EXIT GATE GREEN + smoke 73/73. |
 | — | **(cold-rebuild, soft)** backup-repo logged `BACKUP SNAPSHOT not issued (repository type ratification follow-up)` (it WAS issued on the live-ratify run). | The repository registered + mounted fine; the async `BACKUP SNAPSHOT` command returned non-zero on the fresh cluster (timing on a just-registered repo). The overlay treats it as best-effort (`\|\|`). | Non-fatal — smoke 73/73 still GREEN (it verifies the repo + mount, not a FINISHED snapshot). Re-running the snapshot succeeds once the repo settles; tightened polling is a follow-up. |
+
+### §3.C StarRocks shared-data (0.L.5) apply-time transient chronology
+
+Live-ratified 2026-05-26 (smoke `smoke-0.L.5.ps1` 69/69 GREEN with chaos default-on). Each transient: symptom → diagnosis → permanent fix in source.
+
+| # | Symptom | Diagnosis | Recovery / fix |
+|---|---|---|---|
+| D1 | (cross-tier) `lakehouse-minio` apply fired the new `minio_starrocks_tenant` resource, which got 403 `permission denied` on `vault kv get … nexus/data/analytics/starrocks-sd/s3-access-key` (minio-1's agent token). | The MinIO agent policy v1 only granted read on `nexus/data/lakehouse/minio/*`. The SR-SD tenant bootstrap runs on `minio-1` and needs read on the SR-SD KV S3 creds. | **Permanent fix in source**: bump `nexus-infra-vmware/.../role-overlay-vault-agent-minio-policies.tf` to v2 — adds `path "nexus/data/analytics/starrocks-sd/s3-*" { capabilities = ["read"] }`. Re-apply security → tenant bootstrap then runs cleanly + the cross-bucket-deny proof passes. General lesson: when a new tenant on the MinIO cluster reads creds from a new KV namespace, the MinIO agent policy must be extended to cover it. |
+| D2 | `pwsh -File scripts/foundation/...` early (DHCP) — VMware's `VMnetDHCP` service was **stopped** on the build host (cause unknown — sometime since the prior session). Build VMs power on but never get an IP → Debian installer hangs at the boot stage → `disk.vmdk` stays at 7.6 MB after 30 minutes; `vmware.log` shows VMXNET3 activated but no Tools / no progress. The DHCP leases file (`C:\ProgramData\VMware\vmnetdhcp.leases`) has no new entries after Packer powers the VM on. | The Windows service `VMware DHCP Service (VMnetDHCP)` had stopped; the build user account didn't have SCM start permissions to bring it back up. The previously-sealed lab VMs are unaffected (they use `nexus-gateway`'s dnsmasq DHCP, not VMware's; VMware DHCP only serves vmnet8 NAT used by Packer builds). | **Operator recovery**: open an elevated shell on the build host and `Start-Service VMnetDHCP` (or `sc start VMnetDHCP`, or the Services applet). Packer then re-fires cleanly. No source change. **Diagnostic shortcut**: if a Packer build's `disk.vmdk` is still 7.6 MB after ~5 min, check `Get-Service VMnetDHCP` first. |
+| D3 | `starrocks_sd_storage_volume` overlay died at `Unexpected token '.Replace' in expression or statement` on line `.Replace('__ROOT_KV__', $kvRootPw) \``. The bash heredoc was being multi-line-built via PowerShell backtick line continuation + `.Method()` on next line. | PowerShell's backtick line continuation joins logical lines but the parser does NOT then accept `.Method()` as a continued expression — it needs the `.` at the END of the previous line (PS's incomplete-expression rule), not after a backtick on the next line. | **Permanent fix in source**: inline the 6 `.Replace(...)` calls on a single line (`$sv = $svTmpl.Replace('A',$a).Replace('B',$b)…`). For longer chains, use `($svTmpl).` with the dot at end-of-line so the parser treats each line as a continuation. New feedback memory candidate: `feedback_powershell_backtick_method_continuation`. |
+| D4 | `starrocks_sd_storage_volume` re-fire reported `ERROR: nexus_minio_starrocks is not the default storage volume (got '')` even though `SET nexus_minio_starrocks AS DEFAULT STORAGE VOLUME` had just run successfully. | `SHOW STORAGE VOLUMES` in StarRocks returns the **name column only** (one column: `Storage Volume`). My verify used `awk '{print $2}'` on its output, which is empty. The correct command for IsDefault is `DESC STORAGE VOLUME <name>` which returns 7 tabular columns: `Name Type IsDefault Location Params Enabled Comment`. My first DESC-based fix then *also* failed because `grep -i 'IsDefault'` matched the **header row** which has no boolean. | **Permanent fix in source**: use `DESC STORAGE VOLUME <name>` + `awk '$1 == "<name>" {print $3}'` to extract the IsDefault column from the data row by matching column 1 to the volume name. Same fix mirrored in `smoke-0.L.5.ps1` (parses the data row by matching the name regex + reads token 3). |
+| D5 | `starrocks_sd_schema_bootstrap` died at `CREATE TABLE nexus.events ...` with `ERROR 1064: Failed to create partition[...]. Timeout: tablet_create_timeout_second(=10s)` and a suggested fix `admin set frontend config("tablet_create_timeout_second"="20")`. | The first cloud-native `CREATE TABLE` against a fresh storage volume in shared-data mode materializes the tablet's path tree in the object store, which takes longer than StarRocks's 10 s default tablet-create timeout. (In shared-nothing this is fast because BE-local file creation is millisecond-scale; in shared-data it's a chain of S3 PUTs.) | **Permanent fix in source**: in `schema-bootstrap` run `ADMIN SET FRONTEND CONFIG ("tablet_create_timeout_second" = "60")` BEFORE the `CREATE TABLE`. `ADMIN SET FRONTEND CONFIG` is in-memory + idempotent; survives until FE restart (a follow-up could bake it into `fe.conf` for restart-safety). 60 s is generous; observed first-create takes ~5–15 s on the lab. |

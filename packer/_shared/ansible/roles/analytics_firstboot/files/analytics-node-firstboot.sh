@@ -6,9 +6,10 @@
 # VMnet11, 0x01 secondary VMnet10), same /etc/hosts pattern, same hostname
 # renaming, same VMnet10 backplane .link MAC-match.
 #
-# IP-to-role map covers BOTH analytics clusters:
-#   - 0.G.5 ClickHouse: 3 Keeper (.41-.43) + 3 shards x 2 replicas (.44-.49)
-#   - 0.G.6 StarRocks:  3 FE (.31-.33) + 3 BE (.34-.36)
+# IP-to-role map covers ALL THREE analytics clusters:
+#   - 0.G.5 ClickHouse:        3 Keeper (.41-.43) + 3 shards x 2 replicas (.44-.49)
+#   - 0.G.6 StarRocks sn:      3 FE (.31-.33) + 3 BE (.34-.36)
+#   - 0.L.5 StarRocks sd:      3 FE (.37-.39) + 2 CN (.30,.40) -- ADR-0037
 # A clone landing on an unmapped IP fails fast with a clear error.
 #
 # This script does NOT enable any role service. The Terraform role-overlays
@@ -147,9 +148,19 @@ case "$VMNET11_IP" in
   192.168.70.35) HOSTNAME=sr-be-2; VMNET10_IP=192.168.10.35; ROLE=starrocks-be; CLUSTER=starrocks ;;
   192.168.70.36) HOSTNAME=sr-be-3; VMNET10_IP=192.168.10.36; ROLE=starrocks-be; CLUSTER=starrocks ;;
 
+  # ─── 0.L.5 -- StarRocks shared-data FE quorum (3 nodes, ADR-0037) ─────
+  192.168.70.37) HOSTNAME=sr-sd-fe-1; VMNET10_IP=192.168.10.37; ROLE=starrocks-sd-fe; CLUSTER=starrocks-sd ;;
+  192.168.70.38) HOSTNAME=sr-sd-fe-2; VMNET10_IP=192.168.10.38; ROLE=starrocks-sd-fe; CLUSTER=starrocks-sd ;;
+  192.168.70.39) HOSTNAME=sr-sd-fe-3; VMNET10_IP=192.168.10.39; ROLE=starrocks-sd-fe; CLUSTER=starrocks-sd ;;
+
+  # ─── 0.L.5 -- StarRocks shared-data CN nodes (2 nodes, ADR-0037) ──────
+  # CN-2 at .40 is the documented decade-spill (SR .3x had only 4 free slots).
+  192.168.70.30) HOSTNAME=sr-sd-cn-1; VMNET10_IP=192.168.10.30; ROLE=starrocks-sd-cn; CLUSTER=starrocks-sd ;;
+  192.168.70.40) HOSTNAME=sr-sd-cn-2; VMNET10_IP=192.168.10.40; ROLE=starrocks-sd-cn; CLUSTER=starrocks-sd ;;
+
   *)
     echo "$LOG_PREFIX ERROR: unknown VMnet11 IP '$VMNET11_IP' -- not a 04-analytics tier IP" >&2
-    echo "$LOG_PREFIX recognised IPs: ch-keeper-1..3 (.41/.42/.43); ch-shard{1,2,3}-rep{1,2} (.44-.49); sr-fe-{leader,follower-1,follower-2} (.31/.32/.33); sr-be-1..3 (.34/.35/.36)." >&2
+    echo "$LOG_PREFIX recognised IPs: ch-keeper-1..3 (.41/.42/.43); ch-shard{1,2,3}-rep{1,2} (.44-.49); sr-fe-{leader,follower-1,follower-2} (.31/.32/.33); sr-be-1..3 (.34/.35/.36); sr-sd-fe-1..3 (.37/.38/.39); sr-sd-cn-1/2 (.30/.40)." >&2
     exit 1
     ;;
 esac
@@ -164,6 +175,8 @@ case "$ROLE" in
   clickhouse-server) IDENTITY_DIR=/etc/nexus-clickhouse;        IDENTITY_GROUP=clickhouse ;;
   starrocks-fe)      IDENTITY_DIR=/etc/nexus-starrocks;         IDENTITY_GROUP=starrocks  ;;
   starrocks-be)      IDENTITY_DIR=/etc/nexus-starrocks;         IDENTITY_GROUP=starrocks  ;;
+  starrocks-sd-fe)   IDENTITY_DIR=/etc/nexus-starrocks;         IDENTITY_GROUP=starrocks  ;;
+  starrocks-sd-cn)   IDENTITY_DIR=/etc/nexus-starrocks;         IDENTITY_GROUP=starrocks  ;;
   *)
     echo "$LOG_PREFIX ERROR: unknown ROLE '$ROLE' -- no identity dir mapping" >&2
     exit 1

@@ -1,0 +1,30 @@
+[Unit]
+Description=Nexus StarRocks CN (Compute Node -- stateless compute, shared-data ADR-0037)
+Documentation=https://docs.starrocks.io/docs/deployment/
+After=network-online.target analytics-node-firstboot.service
+Wants=network-online.target
+Requires=analytics-node-firstboot.service
+# Delivered DISABLED by the analytics_starrocks_sd_cn Packer role.
+# role-overlay-starrocks-sd-cn-join.tf renders {{ analytics_sr_home }}/be/conf/cn.conf
+# (per-host priority_networks + storage_root_path + ports), joins the CN via
+# ALTER SYSTEM ADD COMPUTE NODE on the FE leader, then enables this unit.
+ConditionPathExists={{ analytics_sr_home }}/be/conf/cn.conf
+StartLimitBurst=15
+StartLimitIntervalSec=600
+
+[Service]
+Type=simple
+User={{ analytics_sr_user }}
+Group={{ analytics_sr_group }}
+Environment=JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+EnvironmentFile=-{{ analytics_sr_identity_dir }}/node-identity.env
+# Foreground (start_cn.sh without --daemon) so systemd supervises the CN directly.
+ExecStart={{ analytics_sr_home }}/be/bin/start_cn.sh
+Restart=on-failure
+RestartSec=10
+LimitNOFILE=1048576
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
