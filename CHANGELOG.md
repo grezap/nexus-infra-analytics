@@ -6,7 +6,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-05-26 — pending tag
+## [0.2.0] - 2026-05-26 — Phase 0.L.5 StarRocks shared-data SEALED
 
 ### Phase 0.L.5 SEALED — StarRocks shared-data tier live-ratified + cold-rebuild-proven (ADR-0037)
 

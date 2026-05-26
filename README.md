@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Blueprint](https://img.shields.io/badge/blueprint-nexus--platform--plan-orange)](https://github.com/grezap/nexus-platform-plan)
 [![Phase](https://img.shields.io/badge/phase-0.G.5%20%2B%200.G.6%20%2B%200.L.5%20SEALED-brightgreen)](./CHANGELOG.md)
-[![Release](https://img.shields.io/badge/release-v0.2.0%20pending--tag-blue)](./CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-v0.2.0-blue)](./CHANGELOG.md)
 
 Analytics data tier of the **NexusPlatform lab** (93 VMs built/cold-rebuild-proven through Phase 0.L.5) — ClickHouse (Keeper quorum + sharded/replicated MergeTree) · StarRocks **shared-nothing** (FE quorum + BE tablet sharding) · StarRocks **shared-data** (FE quorum + stateless CN, MinIO storage volume). 20 VMs on tier `04-analytics`.
 
@@ -15,7 +15,7 @@ Analytics data tier of the **NexusPlatform lab** (93 VMs built/cold-rebuild-prov
 >
 > **Phase 0.G analytics tier SEALED (2026-05-23, `v0.1.0`):** both 0.G clusters are **live-ratified + cold-rebuild-proven** on the per-cluster + per-engine architectural canon (`feedback_per_cluster_state_per_engine_template.md`). ClickHouse `smoke-0.G.5.ps1` **129/129 GREEN**; StarRocks (shared-nothing) `smoke-0.G.6.ps1` **73/73 GREEN** (StarRocks 3.5.17, JDK 21). 15 apply-time transients diagnosed + fixed in source ([handbook §3.x + §3.B](./docs/handbook.md)).
 >
-> **Phase 0.L.5 StarRocks shared-data SEALED (2026-05-26):** the repo now also hosts the **second StarRocks cluster** (parallel to the sealed shared-nothing one) — 3 FE BDB-JE quorum (`sr-sd-fe-1/2/3` at `.37`/`.38`/`.39`) + 2 stateless CN (`sr-sd-cn-1` at `.30`, `sr-sd-cn-2` at `.40` — documented decade-spill) on `run_mode=shared_data`. Internal cloud-native tables live in a MinIO storage volume `nexus_minio_starrocks` → `s3://starrocks/`; dedicated `nexus-starrocks-app` MinIO service account with a scoped `starrocks-tenant` policy ([ADR-0037](https://github.com/grezap/nexus-platform-plan/blob/main/docs/adr/ADR-0037-starrocks-shared-data-cn-minio-storage-volume.md) amends ADR-0030). Live-ratified + **cold-rebuild proven** (`smoke-0.L.5.ps1` **69/69 GREEN** with chaos default-on: CN-loss + FE-leader re-election; 5 apply-time transients fixed in source — handbook §3.C). `v0.2.0` tag pending Greg's OK.
+> **Phase 0.L.5 StarRocks shared-data SEALED (2026-05-26):** the repo now also hosts the **second StarRocks cluster** (parallel to the sealed shared-nothing one) — 3 FE BDB-JE quorum (`sr-sd-fe-1/2/3` at `.37`/`.38`/`.39`) + 2 stateless CN (`sr-sd-cn-1` at `.30`, `sr-sd-cn-2` at `.40` — documented decade-spill) on `run_mode=shared_data`. Internal cloud-native tables live in a MinIO storage volume `nexus_minio_starrocks` → `s3://starrocks/`; dedicated `nexus-starrocks-app` MinIO service account with a scoped `starrocks-tenant` policy ([ADR-0037](https://github.com/grezap/nexus-platform-plan/blob/main/docs/adr/ADR-0037-starrocks-shared-data-cn-minio-storage-volume.md) amends ADR-0030). Live-ratified + **cold-rebuild proven** (`smoke-0.L.5.ps1` **69/69 GREEN** with chaos default-on: CN-loss + FE-leader re-election; 5 apply-time transients fixed in source — handbook §3.C). **Tagged `v0.2.0` 2026-05-26** as part of the 0.L close-out.
 
 ## Architecture at a glance
 
