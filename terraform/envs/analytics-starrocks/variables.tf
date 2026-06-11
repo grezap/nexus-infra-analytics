@@ -157,6 +157,12 @@ variable "enable_backup_repo" {
   description = "role-overlay-starrocks-backup-repo.tf -- mount the NFS export + CREATE REPOSITORY + BACKUP/RESTORE SNAPSHOT round-trip (ADR-0032)."
 }
 
+variable "enable_starrocks_operator_user" {
+  type        = bool
+  default     = true
+  description = "role-overlay-starrocks-operator-user.tf -- idempotently CREATE USER nexus-cluster-admin (cluster_admin+db_admin+user_admin, DEFAULT ROLE ALL) from Vault KV operator-password. The dedicated operator the nexus-cli StarRocksAdapter (v0.6.5) authenticates as. Distinct from the schema-bootstrap root/app users."
+}
+
 # ─── Operator + cross-env coupling vars ───────────────────────────────────
 variable "analytics_node_user" {
   type    = string
@@ -193,6 +199,12 @@ variable "kv_app_password_path" {
   type        = string
   default     = "nexus/analytics/starrocks/app-password"
   description = "Vault KV path holding the least-priv app user password."
+}
+
+variable "kv_operator_password_path" {
+  type        = string
+  default     = "nexus/analytics/starrocks/operator-password"
+  description = "Vault KV path holding the nexus-cluster-admin operator password (sticky-seeded by security env v2). The nexus-cli StarRocksAdapter authenticates as this dedicated operator; role-overlay-starrocks-operator-user.tf reads it on-node via the agent token to CREATE USER."
 }
 
 # ─── Backup repository (NFS from nexus-gateway, ADR-0032) ─────────────────

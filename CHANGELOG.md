@@ -6,6 +6,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — nexus-cli v0.6.5 StarRocksAdapter — operator-user overlay (`analytics-starrocks` env, 2026-06-12)
+
+- **`analytics-starrocks` env** — new `role-overlay-starrocks-operator-user.tf` (gated by
+  `var.enable_starrocks_operator_user`, default true): idempotently creates the dedicated
+  **`nexus-cluster-admin`** StarRocks operator the nexus-cli StarRocksAdapter authenticates as.
+  Authenticates as root (root-password from Vault KV, read on-node via the agent token) on the FE
+  leader → `CREATE USER 'nexus-cluster-admin'@'%' IDENTIFIED BY '<operator-password>'` + `GRANT
+  cluster_admin, db_admin, user_admin` + `ALTER USER … DEFAULT ROLE ALL` → verifies the operator
+  authenticates + has the NODE (`SHOW FRONTENDS`) + user-admin privileges. Distinct from the
+  schema-bootstrap root/app users; mirrors the clickhouse/percona/mongo/patroni operator overlays.
+  Ordered after backup-repo (defensive; mirrors the analytics-clickhouse fix). The operator was
+  created on the running cluster via the overlay's exact SQL over SSH (non-destructive) so adapter
+  live-verification could proceed; baked for the cold-rebuild in-graph proof (pending consent).
+
 ### Added — nexus-cli v0.6.4 ClickHouseAdapter — operator-user overlay (`analytics-clickhouse` env, 2026-06-11)
 
 - **`analytics-clickhouse` env** — new `role-overlay-clickhouse-operator-user.tf` (gated by
