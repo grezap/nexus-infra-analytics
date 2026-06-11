@@ -6,6 +6,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — nexus-cli v0.6.4 ClickHouseAdapter — operator-user overlay (`analytics-clickhouse` env, 2026-06-11)
+
+- **`analytics-clickhouse` env** — new `role-overlay-clickhouse-operator-user.tf` (gated by
+  `var.enable_clickhouse_operator_user`, default true): idempotently creates the dedicated
+  **`nexus-cluster-admin`** ClickHouse operator the nexus-cli ClickHouseAdapter authenticates as.
+  Runs as `default@localhost` on the DDL coordinator (ch-shard1-rep1): reads
+  `nexus/analytics/clickhouse/operator-password` on-node via the node's own Vault Agent token →
+  distributed-DDL readiness gate → `CREATE USER IF NOT EXISTS nexus-cluster-admin ON CLUSTER
+  nexus_analytics IDENTIFIED WITH sha256_password` + `GRANT ALL ON *.* … WITH GRANT OPTION` → verifies
+  the operator authenticates over the wire + can manage access. Distinct from the schema-bootstrap
+  `admin` user (the CLI gets its own operator identity, mirroring the percona/mongo/patroni
+  operator-user overlays). **Live-caught:** `access_management` is NOT a per-user `SETTINGS` value in
+  CH 26.5 (Code 115) — for a SQL-created user `GRANT ALL` confers access management, so no SETTINGS
+  clause is used. The operator was created on the running cluster via the overlay's exact, idempotent
+  SQL over SSH (non-destructive) so adapter live-verification could proceed; the overlay is baked for
+  the cold-rebuild in-graph proof (pending operator consent).
+
 ## [0.2.0] - 2026-05-26 — Phase 0.L.5 StarRocks shared-data SEALED
 
 ### Phase 0.L.5 SEALED — StarRocks shared-data tier live-ratified + cold-rebuild-proven (ADR-0037)

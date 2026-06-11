@@ -234,6 +234,12 @@ variable "enable_backup_repo" {
   description = "role-overlay-clickhouse-backup-repo.tf -- mount the nexus-gateway NFS export at /var/backups/analytics on the 6 data nodes + register the <backups> Disk + BACKUP/RESTORE round-trip (ADR-0032)."
 }
 
+variable "enable_clickhouse_operator_user" {
+  type        = bool
+  default     = true
+  description = "role-overlay-clickhouse-operator-user.tf -- idempotently CREATE USER nexus-cluster-admin ON CLUSTER (sha256_password from Vault KV operator-password) + GRANT ALL WITH GRANT OPTION. The dedicated operator the nexus-cli ClickHouseAdapter (v0.6.4) authenticates as. Distinct from the schema-bootstrap `admin` user."
+}
+
 # ─── Operator + cross-env coupling vars ───────────────────────────────────
 
 variable "analytics_node_user" {
@@ -302,6 +308,12 @@ variable "kv_app_password_path" {
   type        = string
   default     = "nexus/analytics/clickhouse/app-password"
   description = "Vault KV path holding the least-priv app role's user password (sticky-seeded by security env)."
+}
+
+variable "kv_operator_password_path" {
+  type        = string
+  default     = "nexus/analytics/clickhouse/operator-password"
+  description = "Vault KV path holding the nexus-cluster-admin operator password (sticky-seeded by security env v2). The nexus-cli ClickHouseAdapter authenticates as this dedicated operator; role-overlay-clickhouse-operator-user.tf reads it on-node via the agent token to CREATE USER ... IDENTIFIED WITH sha256_password."
 }
 
 # ─── Backup repository (NFS from nexus-gateway, ADR-0032) ─────────────────
