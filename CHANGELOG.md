@@ -20,8 +20,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   operator-user overlays). **Live-caught:** `access_management` is NOT a per-user `SETTINGS` value in
   CH 26.5 (Code 115) — for a SQL-created user `GRANT ALL` confers access management, so no SETTINGS
   clause is used. The operator was created on the running cluster via the overlay's exact, idempotent
-  SQL over SSH (non-destructive) so adapter live-verification could proceed; the overlay is baked for
-  the cold-rebuild in-graph proof (pending operator consent).
+  SQL over SSH (non-destructive) so adapter live-verification could proceed.
+- **Cold-rebuild — ✅ PROVEN 2026-06-11:** destroy (50 res) → from-zero apply → `smoke-0.G.5.ps1` ALL
+  GREEN; the operator-user overlay ran in-graph (EXIT GATE GREEN); the nexus-cli verb matrix re-ran
+  GREEN against the rebuilt cluster. Two source fixes baked: (1) `analytics-clickhouse` `vmrun_path`
+  default x86 → `C:/Program Files/VMware/VMware Workstation/vmrun.exe` (the non-x86 canon; the stale
+  x86 path in clone_vm state was the [[stale-vmrun-path-in-clone-vm-state]] trap); (2)
+  `role-overlay-clickhouse-operator-user.tf` v1→v2: now `depends_on` backup-repo (not just
+  schema-bootstrap). v1 raced backup-repo — backup-repo restarts nexus-clickhouse-server on all 6
+  data nodes for the `<backups>` Disk, which killed the operator-user's clickhouse-client mid-DDL
+  (rc=138); a warm cluster hid it because the operator was created by hand after everything settled.
+  Also re-confirmed: 1 vmrun "Unknown error" power_on transient on the first apply (re-run cleared it).
 
 ## [0.2.0] - 2026-05-26 — Phase 0.L.5 StarRocks shared-data SEALED
 

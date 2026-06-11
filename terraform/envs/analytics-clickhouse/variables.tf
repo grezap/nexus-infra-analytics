@@ -19,8 +19,8 @@ variable "vm_output_dir_root" {
 
 variable "vmrun_path" {
   type        = string
-  default     = "C:/Program Files (x86)/VMware/VMware Workstation/vmrun.exe"
-  description = "Absolute path to vmrun.exe (used by modules/vm)."
+  default     = "C:/Program Files/VMware/VMware Workstation/vmrun.exe"
+  description = "Absolute path to vmrun.exe (used by modules/vm). Non-(x86) path: a VMware Workstation upgrade relocated vmrun.exe out of Program Files (x86); the old x86 default broke clone/power_on + left the stale path in clone_vm state (feedback_vmrun_path_moved_nonx86 / feedback_stale_vmrun_path_in_clone_vm_state). Corrected default baked at the v0.6.4 cold-rebuild 2026-06-11."
 }
 
 variable "vnet_primary" {

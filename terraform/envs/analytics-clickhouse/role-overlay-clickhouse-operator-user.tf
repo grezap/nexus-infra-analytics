@@ -34,13 +34,17 @@ resource "null_resource" "clickhouse_operator_user" {
 
   triggers = {
     schema_id    = length(null_resource.clickhouse_schema_bootstrap) > 0 ? null_resource.clickhouse_schema_bootstrap[0].id : "disabled"
+    backup_id    = length(null_resource.clickhouse_backup_repo) > 0 ? null_resource.clickhouse_backup_repo[0].id : "disabled"
     cluster_name = var.clickhouse_cluster_name
     operator_kv  = var.kv_operator_password_path
-    operator_v   = "1" # v1 (0.G.5, nexus-cli v0.6.4) = nexus-cluster-admin operator, sha256_password from Vault KV, GRANT ALL WITH GRANT OPTION ON CLUSTER.
+    operator_v   = "2" # v2 (0.G.5, nexus-cli v0.6.4 cold-rebuild): run AFTER backup-repo. v1 raced backup-repo (both only depended on schema-bootstrap) -- backup-repo restarts nexus-clickhouse-server on all 6 data nodes for the <backups> Disk, which killed the operator-user's clickhouse-client mid-DDL on the coordinator (rc=138). Ordering after backup-repo means the servers are stable when the operator user is created. v1 = initial nexus-cluster-admin operator.
     ssh_user     = var.analytics_node_user
   }
 
-  depends_on = [null_resource.clickhouse_schema_bootstrap]
+  # AFTER backup-repo (not just schema-bootstrap): backup-repo restarts all 6
+  # data-node servers to register the <backups> Disk; running the operator-user
+  # creation concurrently raced those restarts (cold-rebuild-surfaced, rc=138).
+  depends_on = [null_resource.clickhouse_schema_bootstrap, null_resource.clickhouse_backup_repo]
 
   provisioner "local-exec" {
     when        = create
