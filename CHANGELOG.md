@@ -18,7 +18,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   schema-bootstrap root/app users; mirrors the clickhouse/percona/mongo/patroni operator overlays.
   Ordered after backup-repo (defensive; mirrors the analytics-clickhouse fix). The operator was
   created on the running cluster via the overlay's exact SQL over SSH (non-destructive) so adapter
-  live-verification could proceed; baked for the cold-rebuild in-graph proof (pending consent).
+  live-verification could proceed.
+- **Cold-rebuild — ✅ PROVEN 2026-06-12:** destroy (35 res) → from-zero apply → `smoke-0.G.6.ps1` ALL
+  GREEN; FE bootstrap + BE join + schema-bootstrap + operator-user all ran in-graph (EXIT GATE GREEN);
+  the nexus-cli verb matrix re-ran GREEN. Source fix baked: `analytics-starrocks` `vmrun_path` default
+  x86 → `C:/Program Files/VMware/VMware Workstation/vmrun.exe` (the [[stale-vmrun-path-in-clone-vm-state]]
+  trap, retired for this cluster). The operator-user overlay's `depends_on backup-repo` (added from the
+  0.G.5 lesson) meant no source change was needed at the rebuild. **2 operator-recovered transients:**
+  (1) 1st apply vmrun "Unknown error" power_on on sr-be-1 → re-run cleared; (2) fresh FE clone
+  `sr-fe-follower-2` booted with no service-NIC IP (the known 0.G.6 transient, handbook §3.B S7) →
+  `vmrun connectNamedDevice` + `vmrun reset` → rejoined in ~85 s.
 
 ### Added — nexus-cli v0.6.4 ClickHouseAdapter — operator-user overlay (`analytics-clickhouse` env, 2026-06-11)
 
