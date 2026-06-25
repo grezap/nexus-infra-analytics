@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Platform CA rollover — analytics tier re-certed to the new Vault root (2026-06-25)
+The analytics tier was old-root after the v0.8.1 Vault greenfield. Per the rollover finding (in-place re-cert breaks HA clusters; cold-rebuild is the clean path), each cluster was cold-rebuilt:
+- **`vmrun_path` x86 → non-x86** in `terraform/envs/analytics-starrocks-sd/variables.tf` — the only analytics env still on the deleted x86 path (clickhouse + starrocks-sn were already fixed in their v0.6.4/v0.6.5 cold-rebuilds).
+- **starrocks-sd** (`analytics-starrocks-sd.ps1 cycle`) — DONE: smoke-0.L.5 ALL PASSED (CN-loss shared-data HA + FE-leader chaos); certs new-root. Pre-reconciled the MinIO `nexus-starrocks-app` IAM key to the current KV (`mc admin user add`) before the apply's s3://starrocks write (the cross-tier MinIO drift, like lakehouse-app).
+- **clickhouse** (`analytics-clickhouse.ps1 cycle`) — DONE: smoke-0.G.5 ALL PASSED; operator-user EXIT GATE GREEN (operator-pw reconciled from KV in-graph). 2 transients recovered (vmrun "Unknown error" + the no-NIC-IP clone on ch-keeper-2/3 → `vmrun connectNamedDevice ethernet1` + reset).
+- **starrocks-sn** (`analytics-starrocks.ps1 cycle`) — certs new-root + data plane proven (schema-bootstrap EXIT GATE GREEN: 60 rows, 3 BE, sharded+replicated), but the terraform apply was **interrupted by a build-host standby** mid-run (froze ~6.5h); the final cosmetic steps (operator-user + backup-repo) did not complete. **Follow-up:** re-run `analytics-starrocks.ps1 apply` to finish those 2 steps (+ reconcile the operator-pw) when convenient.
+
 ### Added — nexus-cli v0.6.5 StarRocksAdapter — operator-user overlay (`analytics-starrocks` env, 2026-06-12)
 
 - **`analytics-starrocks` env** — new `role-overlay-starrocks-operator-user.tf` (gated by
