@@ -102,8 +102,11 @@ echo "[sr-schema-bootstrap] EXIT GATE GREEN -- sharded (BUCKETS 6) across 3 BE A
         throw "[sr-schema-bootstrap] bring-up/proof failed (rc=$LASTEXITCODE)"
       }
 
-      # Cross-BE tablet distribution check (TabletNum column > 0 on all 3 BE).
-      $rows = (ssh @sshOpts "$sshUser@$leaderIp" "mysql --skip-ssl -h 127.0.0.1 -P 9030 -u root -p`$(sudo cat /dev/null) -N -e 'SHOW BACKENDS' 2>/dev/null" 2>&1 | Out-String)
+      # Tablet distribution across all 3 BE is already verified in-script above
+      # (steps 4a/4b over ssh#1); smoke-0.G.6 re-checks per-BE TabletNum. The prior
+      # second ssh here passed `-p$(sudo cat /dev/null)` -> a bare `-p` -> mysql
+      # blocked on an interactive password prompt over the no-tty ssh (hung ~indefinitely
+      # once root became password-protected). Removed: its $rows output was discarded.
       Write-Host "[sr-schema-bootstrap] (tablet distribution verified in-script via SHOW BACKENDS; smoke-0.G.6 re-checks per-BE TabletNum)"
     PWSH
   }
