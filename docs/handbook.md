@@ -200,7 +200,7 @@ Survives: the MinIO `starrocks` bucket + `nexus-starrocks-app` user + `starrocks
 | Sub-phase | Cluster | Closed | Smoke checks |
 |---|---|---|---|
 | 0.G.5 | ClickHouse (3 shards × 2 replicas + 3 Keeper) | **SEALED 2026-05-23** — live-ratified + cold-rebuild-proven | `smoke-0.G.5.ps1` → 129/129 |
-| 0.G.6 | StarRocks (3 FE + 3 BE, shared-nothing) | **SEALED 2026-05-23** — live-ratified + cold-rebuild-proven; CN/shared-data tier deferred to 0.L | `smoke-0.G.6.ps1` → 73/73 |
+| 0.G.6 | StarRocks (3 FE + 3 BE, shared-nothing) | **SEALED 2026-05-23** — live-ratified + cold-rebuild-proven; CN/shared-data tier was deferred to 0.L.5 (now SEALED, row below) | `smoke-0.G.6.ps1` → 73/73 |
 | 0.L.5 | StarRocks shared-data (3 FE + 2 CN, MinIO storage volume) | **SEALED 2026-05-26** — live-ratified + cold-rebuild-proven (ADR-0037); 5 apply-time transients fixed in source (handbook §3.C) | `smoke-0.L.5.ps1` → 69/69 (chaos default-on) |
 
 ---
@@ -211,7 +211,8 @@ Survives: the MinIO `starrocks` bucket + `nexus-starrocks-app` user + `starrocks
 The exact `destroy → (cross-env regen) → packer build → apply → smoke` sequence with zero operator hot-state between destroy and smoke:
 ```powershell
 pwsh -File scripts/analytics-clickhouse.ps1 destroy
-# (cold-rebuild prereqs, if any, codified in scripts/cold-rebuild-prereqs.ps1 — TBD at ratification)
+# (cold-rebuild prereqs: clickhouse needs none; the two StarRocks shared-data/shared-nothing clusters
+#  reconcile their MinIO tenant IAM key to current KV before the s3:// write — see §3 CA-rollover note)
 cd packer/analytics-clickhouse-keeper-node ; packer build -force .
 cd ../analytics-clickhouse-server-node     ; packer build -force .
 pwsh -File scripts/analytics-clickhouse.ps1 apply
@@ -223,6 +224,14 @@ Ratification checklist (all PROVEN 2026-05-23):
 - [x] from-zero `apply` ALL overlays green (server-config + schema-bootstrap + backup-repo + cross-env foundation/security)
 - [x] `smoke-0.G.5.ps1` ALL GREEN (129/129) on the cold-rebuilt cluster
 - [x] documented VMware-Workstation-under-load recoveries: re-run after the vmrun "Unknown error" power-on flake (#1); `vmrun connectNamedDevice ... ethernet1` + `systemctl restart nexus-clickhouse-server` for the nic1 NO-CARRIER flake (#9). These are inherent to the lab hypervisor, not config bugs; the DDL-readiness gate makes #9 fail fast with a clear pointer.
+
+> **CA-rollover cold-rebuild (2026-06-25/26):** all 3 analytics clusters were cold-rebuilt onto the
+> v0.8.1-greenfield Vault PKI root (in-place re-cert breaks HA clusters; cold-rebuild is the clean path) —
+> `analytics-clickhouse` + `analytics-starrocks` (shared-nothing) + `analytics-starrocks-sd` (shared-data),
+> each `cycle`-rebuilt with its smoke gate ALL PASSED and certs new-root. The two StarRocks clusters
+> pre-reconciled their MinIO tenant IAM key to current KV (`mc admin user add`) before the `s3://` write.
+> No source `.tf` changed except the `analytics-starrocks-sd` `vmrun_path` x86 → non-x86 fix. Full
+> per-cluster chronology in the CHANGELOG `[Unreleased]` "Platform CA rollover" entry.
 
 ### §3.x Apply-time transient chronology
 Each observed VM-layer / overlay-layer transient: symptom → diagnosis → recovery / permanent fix in source.
